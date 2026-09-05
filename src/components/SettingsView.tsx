@@ -53,7 +53,7 @@ function getDeviceId(): string {
 }
 
 export function SettingsView() {
-  const { storageName, setStorageName, theme, setTheme, toast, resetDemoData, routingMode, setRoutingMode, storageNodes } = useApp();
+  const { storageName, setStorageName, theme, setTheme, toast, resetData, routingMode, setRoutingMode, storageNodes } = useApp();
   const [active, setActive] = useState<SettingsTab>('general');
   const [name, setName] = useState(storageName);
   const [autoSave, setAutoSave] = useState(true);
@@ -337,7 +337,7 @@ export function SettingsView() {
             </div>
             <div className="setting-card security-status">
               <div className="security-icon">{'\u2713'}</div>
-              <div><b>Browser demo protected</b><small>Data demo disimpan secara lokal di browser ini.</small></div>
+              <div><b>Server-protected workspace</b><small>Data disimpan di server dengan autentikasi passcode dan session.</small></div>
             </div>
           </section>
         )}
@@ -429,7 +429,7 @@ export function SettingsView() {
                 <b>Reset data</b>
                 <small>Kembalikan pengaturan ke kondisi awal. File di Google Drive tidak terhapus.</small>
               </div>
-              <button className="btn danger" onClick={() => { if (confirm('Reset semua pengaturan ke kondisi awal? File Google Drive tidak terhapus.')) resetDemoData(); }}>Reset</button>
+              <button className="btn danger" onClick={() => { if (confirm('Reset semua pengaturan ke kondisi awal? File Google Drive tidak terhapus.')) resetData(); }}>Reset</button>
             </div>
 
             <div className="setting-card">

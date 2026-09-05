@@ -17,7 +17,7 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
       toast('Pilih PDF terlebih dahulu');
       return;
     }
-    toast('PDF conversion demo \u2192 ' + format);
+    toast('PDF conversion is not configured');
     setTimeout(onClose, 700);
   };
 
@@ -25,7 +25,7 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
     <div className={'modal-wrap' + (open ? ' open' : '')}>
       <div className="modal converter">
         <h3>PDF Converter</h3>
-        <p>Convert PDF ke format yang tersedia pada demo.</p>
+        <p>PDF conversion is not configured.</p>
         <div className="convert-drop" onClick={() => fileInputRef.current?.click()}>
           <b>{pdfName}</b>
           <span>PDF {'\u2192'} JPG / PNG / TXT</span>

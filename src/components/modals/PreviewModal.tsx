@@ -160,7 +160,7 @@ export function PreviewModal({ open, onClose, file }: PreviewModalProps) {
             <>
               {type === 'img' && (
                 <div style={{ color: '#9da7b8', textAlign: 'center' }}>
-                  <p>Image preview (demo)</p>
+                  <p>Image preview not available</p>
                 </div>
               )}
               {type === 'pdf' && (

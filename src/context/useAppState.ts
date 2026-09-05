@@ -4,11 +4,10 @@ import {
   EMPTY_DRIVES,
   EMPTY_DASHBOARD_FILES,
   EMPTY_EXPLORER_FILES,
-  defaultApiLogs,
   CURRENT_STORAGE_VERSION,
   STORAGE_VERSION_KEY,
   DEFAULT_ROUTING_MODE,
-} from '@/data/mockData';
+} from '@/data/appData';
 import { deleteStorageNode, getOAuthUrl } from '@/utils/storageNodes';
 import * as driveApi from '@/utils/driveApi';
 import type { AppContextValue } from './AppContext';
@@ -24,7 +23,7 @@ export function useAppState(): AppContextValue {
   const [drives] = useState<Drive[]>(EMPTY_DRIVES);
   const [dashboardFiles] = useState<DashboardFile[]>(EMPTY_DASHBOARD_FILES);
   const [explorerFiles] = useState<ExplorerFile[]>(EMPTY_EXPLORER_FILES);
-  const [apiLogs] = useState<ApiLog[]>(defaultApiLogs);
+  const [apiLogs] = useState<ApiLog[]>([]);
   const [storageName, setStorageNameState] = useState(() => localStorage.getItem('ms_name') || 'My Storage');
   const [routingMode, setRoutingModeState] = useState<RoutingMode>(() => (localStorage.getItem('ms_routing') as RoutingMode) || DEFAULT_ROUTING_MODE);
 
@@ -106,8 +105,8 @@ export function useAppState(): AppContextValue {
   }, [toastMsg]);
 
   useEffect(() => {
-    if (theme === 'dark') document.body.classList.add('dark-demo');
-    else document.body.classList.remove('dark-demo');
+    if (theme === 'dark') document.body.classList.add('dark-theme');
+    else document.body.classList.remove('dark-theme');
     localStorage.setItem('ms_theme', theme);
   }, [theme]);
 
@@ -470,7 +469,7 @@ export function useAppState(): AppContextValue {
     return await driveApi.checkDuplicate(filename, parentGoogleId);
   }, []);
 
-  const resetDemoData = useCallback(() => {
+  const resetData = useCallback(() => {
     localStorage.removeItem('ms_drives');
     localStorage.removeItem('ms_files');
     localStorage.removeItem('myStorageV3Files');
@@ -557,7 +556,7 @@ export function useAppState(): AppContextValue {
     cancelUpload,
     clearUploadSession,
     checkDuplicateFile,
-    resetDemoData,
+    resetData,
     exportData,
   };
 }

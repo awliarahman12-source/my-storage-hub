@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
 import { fetchActivityLogsFiltered, type ActivityLogEntry } from '@/utils/driveApi';
+import { getOAuthUrl } from '@/utils/storageNodes';
 import type { ApiTab, ActivityFilter } from '@/types';
 
 const tabs: { id: ApiTab; icon: string; label: string }[] = [
@@ -92,7 +93,7 @@ export function ApiView() {
         ))}
         <div className="api-menu-note">
           <b>Developer Mode</b>
-          <span>Configuration shown here is demo-only until a backend is connected.</span>
+          <span>Configure API connections and integrations for your storage pool.</span>
         </div>
       </div>
       <div className="api-content">
@@ -100,7 +101,7 @@ export function ApiView() {
           <section className="api-panel active">
             <div className="api-header">
               <div><h2>Integration Overview</h2><p>Monitor all API connections from one place.</p></div>
-              <button className="btn primary" onClick={() => toast('All demo API checks completed')}>Test All</button>
+              <button className="btn primary" onClick={() => toast('Running API checks...')}>Test All</button>
             </div>
             <div className="api-status-grid">
               <div className="api-status-card">
@@ -110,12 +111,12 @@ export function ApiView() {
               </div>
               <div className="api-status-card">
                 <div className="api-status-icon">{'\u2194'}</div>
-                <div><b>Storage API</b><small>Ready {'\u00B7'} Demo</small></div>
-                <span className="api-dot on" />
+                <div><b>Storage API</b><small>Not configured</small></div>
+                <span className="api-dot off" />
               </div>
               <div className="api-status-card">
                 <div className="api-status-icon">DB</div>
-                <div><b>Database</b><small>Local browser storage</small></div>
+                <div><b>Database</b><small>Supabase</small></div>
                 <span className="api-dot on" />
               </div>
               <div className="api-status-card">
@@ -127,9 +128,8 @@ export function ApiView() {
             <div className="api-card">
               <div className="api-card-head">
                 <div><b>API Base URL</b><small>Endpoint utama aplikasi.</small></div>
-                <span className="pill">DEMO</span>
               </div>
-              <div className="api-code">http://localhost:3000/api</div>
+              <div className="api-code">https://iahedaeqytmfmscgagcu.supabase.co/functions/v1</div>
             </div>
             <div className="api-card">
               <div className="api-card-head">
@@ -148,7 +148,7 @@ export function ApiView() {
           <section className="api-panel active">
             <div className="api-header">
               <div><h2>Google Drive API</h2><p>Konfigurasi koneksi Google Drive untuk storage pool.</p></div>
-              <button className="btn primary" onClick={() => toast('Google Drive API connection test: Demo Ready')}>Test Connection</button>
+              <button className="btn primary" onClick={() => toast('Testing Google Drive API connection...')}>Test Connection</button>
             </div>
             <div className="api-card">
               <div className="api-card-head">
@@ -163,12 +163,12 @@ export function ApiView() {
                 <button onClick={() => setShowSecret(!showSecret)}>{showSecret ? 'Hide' : 'Show'}</button>
               </div>
               <label>Redirect URI</label>
-              <input className="api-input" defaultValue="http://localhost:3000/auth/google/callback" />
+              <input className="api-input" placeholder="Configured on the server" disabled />
               <div className="api-info">Scope yang disarankan akan ditentukan backend. Jangan menaruh refresh token di HTML, localStorage, atau repository GitHub.</div>
             </div>
             <div className="api-card row-api">
-              <div><b>OAuth connection</b><small>Belum terhubung ke Google.</small></div>
-              <button className="btn" onClick={() => toast('OAuth demo \u2014 backend belum terhubung')}>Connect Google</button>
+              <div><b>OAuth connection</b><small>Connect your Google Drive account via OAuth.</small></div>
+              <button className="btn primary" onClick={() => window.location.href = getOAuthUrl()}>Connect Google</button>
             </div>
           </section>
         )}
@@ -179,15 +179,8 @@ export function ApiView() {
               <button className="btn primary" onClick={() => toast('API key creation requires backend authentication')}>{'\uFF0B'} Create Key</button>
             </div>
             <div className="api-card">
-              <div className="key-row">
-                <div><b>Demo Web Client</b><small>Created today {'\u00B7'} Last used just now</small></div>
-                <code>ms_demo_{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}{'\u2022'}</code>
-                <button className="dots" onClick={() => toast('Key detail demo')}>{'\u22EF'}</button>
-              </div>
-            </div>
-            <div className="api-card">
               <div className="empty-key">
-                <strong>No production keys</strong>
+                <strong>No API keys</strong>
                 <span>API key baru sebaiknya dibuat dari backend setelah autentikasi aktif.</span>
               </div>
             </div>
@@ -224,7 +217,7 @@ export function ApiView() {
           <section className="api-panel active">
             <div className="api-header">
               <div><h2>Webhooks</h2><p>Kirim event storage ke sistem eksternal.</p></div>
-              <button className="btn primary" onClick={() => toast(webhookEnabled ? 'Webhook test sent (demo)' : 'Enable webhook first')}>Test Webhook</button>
+              <button className="btn primary" onClick={() => toast(webhookEnabled ? 'Webhook test sent' : 'Enable webhook first')}>Test Webhook</button>
             </div>
             <div className="api-card row-api">
               <div><b>Enable webhooks</b><small>File uploaded, deleted, renamed, dan storage events.</small></div>

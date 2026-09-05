@@ -1,5 +1,5 @@
 import { useApp } from '@/context/AppContext';
-import { viewMeta } from '@/data/mockData';
+import { viewMeta } from '@/data/appData';
 
 interface TopBarProps {
   onOpenUpload: () => void;

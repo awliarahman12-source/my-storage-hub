@@ -227,29 +227,29 @@ tr:hover td{background:#fafbff}
 .convert-drop b{display:block;font-size:12px}.convert-drop span{display:block;color:#8b94a5;font-size:10px;margin-top:5px}
 .converter>label{font-size:11px;font-weight:750;display:block;margin-bottom:7px}
 
-.dark-demo{--bg:#0b1020;--panel:#121827;--text:#edf1f8;--muted:#9aa5b7;--line:#273145;--soft:#0e1422;--card:#121827}
-.dark-demo .sidebar,.dark-demo .card,.dark-demo .setting-card,.dark-demo .api-card,.dark-demo .api-status-card,.dark-demo .settings-menu,.dark-demo .api-menu{background:#121827}
-.dark-demo .search input,.dark-demo .setting-input,.dark-demo .api-input{background:#0e1422;color:#edf1f8}
-.dark-demo th,.dark-demo td{border-color:#202a3c}
-.dark-demo .quick button,.dark-demo .filter,.dark-demo .xbtn{background:#0e1422;color:#c8d0dd;border-color:#273145}
-.dark-demo .quick button{border-color:#273145}
-.dark-demo .login-screen{background:#0b1020}.dark-demo .login-card{background:#121827;color:#edf1f8}
-.dark-demo .file-card,.dark-demo .file-list{background:#121827;border-color:#273145}
-.dark-demo .file-card.selected{background:#1a2030}
-.dark-demo .file-row:hover{background:#0e1422}.dark-demo .file-row.selected{background:#1a2030}
-.dark-demo .explorer-toolbar{background:#121827;border-color:#273145}
-.dark-demo .details-panel{background:#121827;border-color:#273145}
-.dark-demo .context-menu{background:#121827;border-color:#273145}
-.dark-demo .context-menu button:hover{background:#0e1422}
-.dark-demo .upload-drop{background:#0e1422;border-color:#273145}
-.dark-demo .api-code,.dark-demo .event-chips span{background:#0e1422}
-.dark-demo .convert-drop{background:#0e1422;border-color:#273145;color:#c8d0dd}
-.dark-demo .pool-mini{background:#0e1422;border-color:#273145}
-.dark-demo .modal{background:#121827;color:#edf1f8}
-.dark-demo .drop{background:#0e1422;border-color:#273145}
-.dark-demo .api-info{background:#0e1422}
-.dark-demo .architecture span{background:#0e1422}
-.dark-demo .security-status{background:#0e1420}
+.dark-theme{--bg:#0b1020;--panel:#121827;--text:#edf1f8;--muted:#9aa5b7;--line:#273145;--soft:#0e1422;--card:#121827}
+.dark-theme .sidebar,.dark-theme .card,.dark-theme .setting-card,.dark-theme .api-card,.dark-theme .api-status-card,.dark-theme .settings-menu,.dark-theme .api-menu{background:#121827}
+.dark-theme .search input,.dark-theme .setting-input,.dark-theme .api-input{background:#0e1422;color:#edf1f8}
+.dark-theme th,.dark-theme td{border-color:#202a3c}
+.dark-theme .quick button,.dark-theme .filter,.dark-theme .xbtn{background:#0e1422;color:#c8d0dd;border-color:#273145}
+.dark-theme .quick button{border-color:#273145}
+.dark-theme .login-screen{background:#0b1020}.dark-theme .login-card{background:#121827;color:#edf1f8}
+.dark-theme .file-card,.dark-theme .file-list{background:#121827;border-color:#273145}
+.dark-theme .file-card.selected{background:#1a2030}
+.dark-theme .file-row:hover{background:#0e1422}.dark-theme .file-row.selected{background:#1a2030}
+.dark-theme .explorer-toolbar{background:#121827;border-color:#273145}
+.dark-theme .details-panel{background:#121827;border-color:#273145}
+.dark-theme .context-menu{background:#121827;border-color:#273145}
+.dark-theme .context-menu button:hover{background:#0e1422}
+.dark-theme .upload-drop{background:#0e1422;border-color:#273145}
+.dark-theme .api-code,.dark-theme .event-chips span{background:#0e1422}
+.dark-theme .convert-drop{background:#0e1422;border-color:#273145;color:#c8d0dd}
+.dark-theme .pool-mini{background:#0e1422;border-color:#273145}
+.dark-theme .modal{background:#121827;color:#edf1f8}
+.dark-theme .drop{background:#0e1422;border-color:#273145}
+.dark-theme .api-info{background:#0e1422}
+.dark-theme .architecture span{background:#0e1422}
+.dark-theme .security-status{background:#0e1420}
 
 /* V3 File Explorer */
 .explorer-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0;padding:10px 12px;background:var(--card,#fff);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
@@ -337,10 +337,10 @@ tr:hover td{background:#fafbff}
 .no-drives-banner .banner-icon{font-size:22px}
 .no-drives-banner b{font-size:13px;display:block}
 .no-drives-banner small{font-size:11px;color:#92400e}
-.dark-demo .pool-empty .pool-icon{background:#1a2030}
-.dark-demo .drive-actions button{background:#0e1422;border-color:#273145;color:#9aa5b7}
-.dark-demo .routing-selector select{background:#0e1422;color:#edf1f8;border-color:#273145}
-.dark-demo .add-drive-modal input,.dark-demo .add-drive-modal select{background:#0e1422;color:#edf1f8;border-color:#273145}
-.dark-demo .no-drives-banner{background:#1a1a0e;border-color:#3d3a1a}
-.dark-demo .no-drives-banner small{color:#fbbf24}
-.dark-demo .drive-status-badge.offline{background:#1a2030;color:#6b7280}
+.dark-theme .pool-empty .pool-icon{background:#1a2030}
+.dark-theme .drive-actions button{background:#0e1422;border-color:#273145;color:#9aa5b7}
+.dark-theme .routing-selector select{background:#0e1422;color:#edf1f8;border-color:#273145}
+.dark-theme .add-drive-modal input,.dark-theme .add-drive-modal select{background:#0e1422;color:#edf1f8;border-color:#273145}
+.dark-theme .no-drives-banner{background:#1a1a0e;border-color:#3d3a1a}
+.dark-theme .no-drives-banner small{color:#fbbf24}
+.dark-theme .drive-status-badge.offline{background:#1a2030;color:#6b7280}

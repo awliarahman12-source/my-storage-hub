@@ -80,7 +80,7 @@ export interface AppContextValue {
   checkDuplicateFile: (filename: string, parentGoogleId?: string) => Promise<{ exists: boolean; nodes: { nodeId: string; fileId: string; drive: string }[] }>;
 
   // Data ops
-  resetDemoData: () => void;
+  resetData: () => void;
   exportData: () => void;
 }
 
