@@ -38,7 +38,11 @@ export async function deleteStorageNode(nodeId: string): Promise<void> {
 }
 
 export function getOAuthUrl(): string {
-  return `${getBaseUrl()}/auth`;
+  const token = localStorage.getItem('ms_session_token');
+  const params = new URLSearchParams();
+  if (token) params.set('st', token);
+  const qs = params.toString();
+  return `${getBaseUrl()}/auth${qs ? `?${qs}` : ''}`;
 }
 
 export function getOAuthCallbackUrl(): string {
