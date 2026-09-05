@@ -357,7 +357,7 @@ Deno.serve(async (req: Request) => {
 
       if (isResumable) {
         // Initiate resumable upload session
-        const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+        const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -369,14 +369,17 @@ Deno.serve(async (req: Request) => {
         });
 
         if (!initRes.ok) {
-          const errMsg = `Resumable upload init failed (${initRes.status})`;
+          const errText = await initRes.text().catch(() => "");
+          let gErrMsg = `Resumable upload init failed (${initRes.status})`;
+          try { const gErr = JSON.parse(errText); gErrMsg = gErr.error?.message || gErrMsg; } catch { /* not JSON */ }
+          console.error(`Resumable upload init failed for node ${node.id} (${initRes.status}): ${gErrMsg}`);
           await supabase.from("upload_sessions").update({
             status: "failed",
-            error_message: errMsg,
+            error_message: gErrMsg,
             updated_at: new Date().toISOString(),
           }).eq("id", sessionId);
-          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", errMsg);
-          throw new Error(errMsg);
+          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", gErrMsg);
+          throw new Error(gErrMsg);
         }
 
         const uploadUrl = initRes.headers.get("Location");
@@ -406,14 +409,17 @@ Deno.serve(async (req: Request) => {
         });
 
         if (!uploadRes.ok) {
-          const errMsg = `Upload failed (${uploadRes.status})`;
+          const errText = await uploadRes.text().catch(() => "");
+          let gErrMsg = `Upload failed (${uploadRes.status})`;
+          try { const gErr = JSON.parse(errText); gErrMsg = gErr.error?.message || gErrMsg; } catch { /* not JSON */ }
+          console.error(`Resumable upload content PUT failed for node ${node.id} (${uploadRes.status}): ${gErrMsg}`);
           await supabase.from("upload_sessions").update({
             status: "failed",
-            error_message: errMsg,
+            error_message: gErrMsg,
             updated_at: new Date().toISOString(),
           }).eq("id", sessionId);
-          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", errMsg);
-          throw new Error(errMsg);
+          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", gErrMsg);
+          throw new Error(gErrMsg);
         }
 
         const uploaded = await uploadRes.json();
@@ -442,14 +448,17 @@ Deno.serve(async (req: Request) => {
         });
 
         if (!uploadRes.ok) {
-          const errMsg = `Upload failed (${uploadRes.status})`;
+          const errText = await uploadRes.text().catch(() => "");
+          let gErrMsg = `Upload failed (${uploadRes.status})`;
+          try { const gErr = JSON.parse(errText); gErrMsg = gErr.error?.message || gErrMsg; } catch { /* not JSON */ }
+          console.error(`Multipart upload failed for node ${node.id} (${uploadRes.status}): ${gErrMsg}`);
           await supabase.from("upload_sessions").update({
             status: "failed",
-            error_message: errMsg,
+            error_message: gErrMsg,
             updated_at: new Date().toISOString(),
           }).eq("id", sessionId);
-          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", errMsg);
-          throw new Error(errMsg);
+          await logActivity(supabase, "upload_failed", sessionRow.filename, sessionRow.storage_node_id, node.email, "error", gErrMsg);
+          throw new Error(gErrMsg);
         }
 
         const uploaded = await uploadRes.json();
