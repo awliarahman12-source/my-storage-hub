@@ -34,6 +34,7 @@ export function useAppState(): AppContextValue {
   // Auth
   const [authLoading, setAuthLoading] = useState(true);
   const [authed, setAuthed] = useState(false);
+  const [authError, setAuthError] = useState(false);
   const [passcodeInitialized, setPasscodeInitialized] = useState(false);
 
   const login = useCallback(async (passcode: string): Promise<{ success: boolean; error?: PasscodeError }> => {
@@ -70,12 +71,20 @@ export function useAppState(): AppContextValue {
       try {
         const status = await checkAuthStatus();
         if (!cancelled) {
-          setPasscodeInitialized(status.passcodeInitialized);
-          setAuthed(status.authed);
+          if (status.error) {
+            setAuthError(true);
+          } else {
+            setAuthError(false);
+            setPasscodeInitialized(status.passcodeInitialized);
+            setAuthed(status.authed);
+          }
           setAuthLoading(false);
         }
       } catch {
-        if (!cancelled) setAuthLoading(false);
+        if (!cancelled) {
+          setAuthError(true);
+          setAuthLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -509,6 +518,7 @@ export function useAppState(): AppContextValue {
     setView,
     authLoading,
     authed,
+    authError,
     passcodeInitialized,
     login,
     setupAdminPasscode,

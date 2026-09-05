@@ -46,6 +46,7 @@ export type PasscodeError = 'wrong' | 'rate_limited' | 'server' | 'network' | 'n
 export interface AuthStatus {
   passcodeInitialized: boolean;
   authed: boolean;
+  error?: boolean;
 }
 
 export async function checkAuthStatus(): Promise<AuthStatus> {
@@ -54,14 +55,14 @@ export async function checkAuthStatus(): Promise<AuthStatus> {
       headers: getHeaders(),
       credentials: 'omit',
     });
-    if (!res.ok) return { passcodeInitialized: false, authed: false };
+    if (!res.ok) return { passcodeInitialized: false, authed: false, error: true };
     const data = await res.json();
     return {
       passcodeInitialized: data.passcodeInitialized === true,
       authed: data.authed === true,
     };
   } catch {
-    return { passcodeInitialized: false, authed: false };
+    return { passcodeInitialized: false, authed: false, error: true };
   }
 }
 

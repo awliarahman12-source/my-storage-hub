@@ -18,7 +18,7 @@ import { ConvertModal } from '@/components/modals/ConvertModal';
 import type { DashboardFile, ExplorerFile, DriveFileItem } from '@/types';
 
 function AppContent() {
-  const { currentView, authLoading, authed, passcodeInitialized, login, setupAdminPasscode } = useApp();
+  const { currentView, authLoading, authed, authError, passcodeInitialized, login, setupAdminPasscode } = useApp();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<DriveFileItem | DashboardFile | ExplorerFile | null>(null);
@@ -39,6 +39,23 @@ function AppContent() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg, #0f172a)' }}>
         <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 14 }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg, #0f172a)', gap: 16 }}>
+        <div style={{ color: 'var(--text, #e2e8f0)', fontSize: 18, fontWeight: 600 }}>Connection Error</div>
+        <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 14, textAlign: 'center', maxWidth: 360 }}>
+          Unable to reach the authentication server. Please check your connection and try again.
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ marginTop: 8, padding: '10px 24px', borderRadius: 8, border: 'none', background: 'var(--accent, #3b82f6)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

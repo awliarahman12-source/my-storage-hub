@@ -19,6 +19,7 @@ export interface AppContextValue {
   // Auth
   authLoading: boolean;
   authed: boolean;
+  authError: boolean;
   passcodeInitialized: boolean;
   login: (passcode: string) => Promise<{ success: boolean; error?: PasscodeError }>;
   setupAdminPasscode: (passcode: string, confirm: string) => Promise<{ success: boolean; error?: PasscodeError }>;
