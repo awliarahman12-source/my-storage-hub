@@ -34,7 +34,7 @@ async function createSession(req: Request, supabase: ReturnType<typeof getSupaba
 
   if (insertError) return null;
 
-  return new Response(JSON.stringify({ success: true }), {
+  return new Response(JSON.stringify({ success: true, sessionToken }), {
     status: 200,
     headers: {
       ...jsonHeaders(req.headers.get("Origin")),
@@ -212,7 +212,8 @@ Deno.serve(async (req: Request) => {
 
     // POST /passcode-auth/logout
     if (path === "/logout" && req.method === "POST") {
-      const token = getCookie(req, SESSION_COOKIE);
+      let token = getCookie(req, SESSION_COOKIE);
+      if (!token) token = req.headers.get("X-Session-Token");
       if (token) {
         const tokenHash = await sha256Hex(token);
         const supabase = getSupabase();

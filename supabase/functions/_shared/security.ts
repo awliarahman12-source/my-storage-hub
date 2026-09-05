@@ -114,7 +114,12 @@ export interface SessionInfo {
 }
 
 export async function validateSession(req: Request): Promise<SessionInfo | null> {
-  const token = getCookie(req, SESSION_COOKIE);
+  let token = getCookie(req, SESSION_COOKIE);
+  if (!token) token = req.headers.get("X-Session-Token");
+  if (!token) {
+    const url = new URL(req.url);
+    token = url.searchParams.get("st");
+  }
   if (!token) return null;
 
   const tokenHash = await sha256Hex(token);

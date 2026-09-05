@@ -3,6 +3,20 @@ import type { DriveFileItem, StorageNode, StoragePoolSummary, UploadSession, Rou
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
+const SESSION_TOKEN_KEY = 'ms_session_token';
+
+export function setSessionToken(token: string): void {
+  localStorage.setItem(SESSION_TOKEN_KEY, token);
+}
+
+export function clearSessionToken(): void {
+  localStorage.removeItem(SESSION_TOKEN_KEY);
+}
+
+function getSessionToken(): string | null {
+  return localStorage.getItem(SESSION_TOKEN_KEY);
+}
+
 function driveOpsUrl(): string {
   return `${SUPABASE_URL}/functions/v1/drive-ops`;
 }
@@ -16,10 +30,13 @@ function passcodeUrl(): string {
 }
 
 function getHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
   };
+  const token = getSessionToken();
+  if (token) headers['X-Session-Token'] = token;
+  return headers;
 }
 
 // ============ Passcode Auth ============
@@ -56,7 +73,11 @@ export async function setupPasscode(passcode: string, confirm: string): Promise<
       credentials: 'include',
       body: JSON.stringify({ passcode, confirm }),
     });
-    if (res.ok) return { success: true };
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.sessionToken) setSessionToken(data.sessionToken);
+      return { success: true };
+    }
     if (res.status === 403) return { success: false, error: 'not_configured' };
     if (res.status === 429) return { success: false, error: 'rate_limited' };
     if (res.status >= 500) return { success: false, error: 'server' };
@@ -74,7 +95,11 @@ export async function validatePasscode(passcode: string): Promise<{ success: boo
       credentials: 'include',
       body: JSON.stringify({ passcode }),
     });
-    if (res.ok) return { success: true };
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.sessionToken) setSessionToken(data.sessionToken);
+      return { success: true };
+    }
     if (res.status === 401) return { success: false, error: 'wrong' };
     if (res.status === 429) return { success: false, error: 'rate_limited' };
     if (res.status >= 500) return { success: false, error: 'server' };
@@ -108,6 +133,7 @@ export async function logoutSession(): Promise<void> {
   } catch {
     // ignore
   }
+  clearSessionToken();
 }
 
 export interface SessionInfo {
@@ -348,11 +374,17 @@ export async function shareFile(fileId: string, nodeId: string, access: string):
 // ============ Download & Preview ============
 
 export function getDownloadUrl(fileId: string, nodeId: string): string {
-  return `${driveOpsUrl()}/download/${fileId}?nodeId=${nodeId}`;
+  const token = getSessionToken();
+  const params = new URLSearchParams({ nodeId });
+  if (token) params.set('st', token);
+  return `${driveOpsUrl()}/download/${fileId}?${params}`;
 }
 
 export function getPreviewUrl(fileId: string, nodeId: string): string {
-  return `${driveOpsUrl()}/preview/${fileId}?nodeId=${nodeId}`;
+  const token = getSessionToken();
+  const params = new URLSearchParams({ nodeId });
+  if (token) params.set('st', token);
+  return `${driveOpsUrl()}/preview/${fileId}?${params}`;
 }
 
 export function getAuthHeaders(): Record<string, string> {
@@ -402,12 +434,15 @@ export async function initUpload(nodeId: string, filename: string, mimeType: str
 }
 
 export async function startUpload(sessionId: string, file: File | ArrayBuffer, mimeType: string): Promise<UploadSession> {
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': mimeType,
+  };
+  const token = getSessionToken();
+  if (token) headers['X-Session-Token'] = token;
   const res = await fetch(`${driveUploadUrl()}/start/${sessionId}`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': mimeType,
-    },
+    headers,
     credentials: 'include',
     body: file,
   });
@@ -431,6 +466,8 @@ export async function startUploadWithProgress(
     xhr.open('POST', `${driveUploadUrl()}/start/${sessionId}`);
     xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
     xhr.setRequestHeader('Content-Type', mimeType);
+    const sessionToken = getSessionToken();
+    if (sessionToken) xhr.setRequestHeader('X-Session-Token', sessionToken);
     xhr.withCredentials = true;
 
     xhr.upload.onprogress = (e) => {

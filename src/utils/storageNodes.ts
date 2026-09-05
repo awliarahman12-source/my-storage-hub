@@ -8,10 +8,13 @@ function getBaseUrl(): string {
 }
 
 function getHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
   };
+  const token = localStorage.getItem('ms_session_token');
+  if (token) headers['X-Session-Token'] = token;
+  return headers;
 }
 
 export async function fetchStorageNodes(): Promise<StorageNode[]> {
