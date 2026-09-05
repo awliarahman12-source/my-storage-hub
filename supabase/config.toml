@@ -1,0 +1,11 @@
+[functions.google-drive-auth]
+verify_jwt = false
+
+[functions.passcode-auth]
+verify_jwt = false
+
+[functions.drive-ops]
+verify_jwt = false
+
+[functions.drive-upload]
+verify_jwt = false
