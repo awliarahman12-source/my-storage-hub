@@ -25,6 +25,7 @@ interface StorageNodeRow {
   token_expires_at: string | null;
   status: string;
   priority: number;
+  enabled: boolean;
 }
 
 interface UploadSessionRow {
@@ -97,12 +98,11 @@ async function getConnectedNodes(supabase: ReturnType<typeof getSupabase>): Prom
     .from("storage_nodes")
     .select("*")
     .eq("status", "connected")
+    .eq("enabled", true)
     .not("access_token", "is", null)
     .order("priority", { ascending: true });
   if (error) throw new Error("Failed to fetch storage nodes");
-  const nodes = (data || []) as StorageNodeRow[];
-  // Filter to enabled nodes only (default enabled if column missing)
-  return nodes.filter((n) => (n as any).enabled !== false);
+  return (data || []) as StorageNodeRow[];
 }
 
 async function getDriveQuotaBytes(node: StorageNodeRow): Promise<{ total: number | null; used: number | null }> {
@@ -566,6 +566,13 @@ Deno.serve(async (req: Request) => {
         }
       } else {
         selectedNode = await selectBestNode(nodes, fileSizeBytes, mode || "automatic", supabase);
+      }
+
+      if (!selectedNode) {
+        return new Response(JSON.stringify({ error: "No storage node with enough free space is available." }), {
+          status: 400,
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
       }
 
       return new Response(JSON.stringify({

@@ -77,16 +77,26 @@ async function exchangeCodeForToken(code: string): Promise<GoogleTokenResponse> 
     }),
   });
 
-  if (!res.ok) throw new Error(`Token exchange failed (${res.status})`);
-  return await res.json() as GoogleTokenResponse;
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Token exchange failed (${res.status}): ${errText}`);
+  }
+  const data = await res.json() as GoogleTokenResponse;
+  if (!data.access_token) throw new Error("Token exchange returned no access_token");
+  return data;
 }
 
 async function getGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo> {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Failed to get user info (${res.status})`);
-  return await res.json() as GoogleUserInfo;
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Failed to get user info (${res.status}): ${errText}`);
+  }
+  const data = await res.json() as GoogleUserInfo;
+  if (!data.sub || !data.email) throw new Error("User info response missing required fields");
+  return data;
 }
 
 async function upsertStorageNode(
@@ -96,14 +106,24 @@ async function upsertStorageNode(
 ): Promise<StorageNodeRow> {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
-  const { data: existing } = await supabase
+  const { data: existing, error: selectError } = await supabase
     .from("storage_nodes")
     .select("*")
     .eq("provider", "google_drive")
     .eq("provider_account_id", userInfo.sub)
     .maybeSingle();
 
+  if (selectError) {
+    console.error("Error fetching existing storage node:", selectError.message);
+    throw new Error("Failed to check existing storage node");
+  }
+
   if (existing) {
+    const refreshToken = tokens.refresh_token || existing.refresh_token;
+    if (!refreshToken) {
+      console.warn("No refresh token available for node:", existing.id);
+    }
+
     const { data, error } = await supabase
       .from("storage_nodes")
       .update({
@@ -112,7 +132,7 @@ async function upsertStorageNode(
         avatar: userInfo.picture,
         status: "connected",
         access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token || existing.refresh_token,
+        refresh_token: refreshToken,
         token_expires_at: expiresAt,
         last_checked_at: new Date().toISOString(),
       })
@@ -120,7 +140,10 @@ async function upsertStorageNode(
       .select("*")
       .single();
 
-    if (error) throw new Error("Failed to update storage node");
+    if (error) {
+      console.error("Failed to update storage node:", error.message);
+      throw new Error("Failed to update storage node");
+    }
     return data as StorageNodeRow;
   }
 
@@ -152,7 +175,10 @@ async function upsertStorageNode(
     .select("*")
     .single();
 
-  if (error) throw new Error("Failed to create storage node");
+  if (error) {
+    console.error("Failed to create storage node:", error.message);
+    throw new Error("Failed to create storage node");
+  }
   return data as StorageNodeRow;
 }
 
@@ -217,7 +243,7 @@ Deno.serve(async (req: Request) => {
         scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
         state,
         access_type: "offline",
-        prompt: "select_account",
+        prompt: "consent",
       });
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -269,7 +295,8 @@ Deno.serve(async (req: Request) => {
           status: 302,
           headers: { ...ch, ...sh, Location: redirectUrl, "Set-Cookie": clearStateCookie },
         });
-      } catch {
+      } catch (err) {
+        console.error("OAuth callback error:", err instanceof Error ? err.message : String(err));
         const appOrigin = getEnv("APP_ORIGIN");
         const redirectUrl = `${appOrigin}/?oauth=error`;
         const clearStateCookie = "oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";

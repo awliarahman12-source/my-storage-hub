@@ -29,6 +29,7 @@ interface StorageNodeRow {
   cap: number;
   used: number;
   priority: number;
+  enabled: boolean;
   access_token: string | null;
   refresh_token: string | null;
   token_expires_at: string | null;
@@ -257,7 +258,7 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = getSupabase();
     const nodes = await getAllStorageNodes(supabase);
-    const connectedNodes = nodes.filter((n) => n.status === "connected" && n.access_token);
+    const connectedNodes = nodes.filter((n) => n.status === "connected" && n.access_token && n.enabled !== false);
 
     // GET /drive-ops/files — list files across all connected drives
     if (path === "/files" && req.method === "GET") {
@@ -409,7 +410,7 @@ Deno.serve(async (req: Request) => {
             cap,
             used,
             priority: n.priority,
-            enabled: (n as any).enabled ?? true,
+            enabled: n.enabled ?? true,
             connectedAt: n.connected_at,
             lastCheckedAt: n.last_checked_at,
             quotaAvailable,
