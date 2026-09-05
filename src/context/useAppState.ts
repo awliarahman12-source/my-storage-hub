@@ -14,6 +14,7 @@ import * as driveApi from '@/utils/driveApi';
 import type { AppContextValue } from './AppContext';
 
 import type { PasscodeError } from '@/utils/driveApi';
+import { checkAuthStatus, setupPasscode as setupPasscodeApi } from '@/utils/driveApi';
 
 export function useAppState(): AppContextValue {
   const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('ms_theme') as Theme) || 'light');
@@ -34,11 +35,25 @@ export function useAppState(): AppContextValue {
   // Auth
   const [authLoading, setAuthLoading] = useState(true);
   const [authed, setAuthed] = useState(false);
+  const [passcodeInitialized, setPasscodeInitialized] = useState(false);
 
   const login = useCallback(async (passcode: string): Promise<{ success: boolean; error?: PasscodeError }> => {
     try {
       const result = await driveApi.validatePasscode(passcode);
       if (result.success) setAuthed(true);
+      return result;
+    } catch {
+      return { success: false, error: 'network' };
+    }
+  }, []);
+
+  const setupAdminPasscode = useCallback(async (passcode: string, confirm: string): Promise<{ success: boolean; error?: PasscodeError }> => {
+    try {
+      const result = await setupPasscodeApi(passcode, confirm);
+      if (result.success) {
+        setAuthed(true);
+        setPasscodeInitialized(true);
+      }
       return result;
     } catch {
       return { success: false, error: 'network' };
@@ -54,9 +69,10 @@ export function useAppState(): AppContextValue {
     let cancelled = false;
     (async () => {
       try {
-        const isAuthed = await driveApi.checkSession();
+        const status = await checkAuthStatus();
         if (!cancelled) {
-          setAuthed(isAuthed);
+          setPasscodeInitialized(status.passcodeInitialized);
+          setAuthed(status.authed);
           setAuthLoading(false);
         }
       } catch {
@@ -494,7 +510,9 @@ export function useAppState(): AppContextValue {
     setView,
     authLoading,
     authed,
+    passcodeInitialized,
     login,
+    setupAdminPasscode,
     logout,
     drives,
     dashboardFiles,

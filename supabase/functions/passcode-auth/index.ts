@@ -15,8 +15,33 @@ import {
   getClientIp,
   HttpError,
   errorResponse,
-  validateString,
 } from "../_shared/security.ts";
+
+async function createSession(req: Request, supabase: ReturnType<typeof getSupabase>, clientIp: string, isCrossOrigin: boolean): Promise<Response | null> {
+  const sessionToken = generateSessionToken();
+  const tokenHash = await sha256Hex(sessionToken);
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000).toISOString();
+  const userAgent = req.headers.get("User-Agent") || null;
+
+  const { error: insertError } = await supabase
+    .from("sessions")
+    .insert({
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+      ip_address: clientIp,
+      user_agent: userAgent,
+    });
+
+  if (insertError) return null;
+
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: {
+      ...jsonHeaders(req.headers.get("Origin")),
+      "Set-Cookie": sessionCookie(sessionToken, SESSION_MAX_AGE, isCrossOrigin),
+    },
+  });
+}
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
@@ -35,13 +60,96 @@ Deno.serve(async (req: Request) => {
   const isCrossOrigin = requestOrigin ? new URL(requestOrigin).hostname !== supabaseHost : false;
 
   try {
-    // POST /passcode-auth/login
-    if (path === "/login" && req.method === "POST") {
-      // Rate limit check
+    // GET /passcode-auth/status — check if passcode is initialized + session valid
+    if (path === "/status" && req.method === "GET") {
+      const supabase = getSupabase();
+      const { data: settings } = await supabase
+        .from("app_settings")
+        .select("passcode_hash")
+        .eq("id", 1)
+        .maybeSingle();
+
+      const passcodeInitialized = !!(settings?.passcode_hash);
+      const session = await validateSession(req);
+
+      return new Response(JSON.stringify({
+        passcodeInitialized,
+        authed: !!session,
+      }), {
+        status: 200,
+        headers: jsonHeaders(origin),
+      });
+    }
+
+    // POST /passcode-auth/setup — first-time passcode setup (only works if passcode_hash IS NULL)
+    if (path === "/setup" && req.method === "POST") {
       const rateLimit = await checkRateLimit(clientIp);
       if (!rateLimit.allowed) {
-        const retryMin = Math.ceil(rateLimit.retryAfterMs / 60000);
-        return new Response(JSON.stringify({ error: `Too many attempts. Try again in ${retryMin} minutes.` }), {
+        return new Response(JSON.stringify({ error: "Too many attempts. Please try again later." }), {
+          status: 429,
+          headers: { ...jsonHeaders(origin), "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)) },
+        });
+      }
+
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        return errorResponse(400, "Invalid request body", origin);
+      }
+
+      const b = body as Record<string, unknown>;
+      const passcode = typeof b?.passcode === "string" ? b.passcode : "";
+      const confirm = typeof b?.confirm === "string" ? b.confirm : "";
+
+      if (passcode.length < 6) {
+        return errorResponse(400, "Passcode must be at least 6 characters", origin);
+      }
+      if (passcode !== confirm) {
+        return errorResponse(400, "Passcodes do not match", origin);
+      }
+      if (passcode.length > 128) {
+        return errorResponse(400, "Passcode is too long", origin);
+      }
+
+      const supabase = getSupabase();
+      const { data: settings } = await supabase
+        .from("app_settings")
+        .select("passcode_hash")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (!settings) {
+        return errorResponse(500, "Settings unavailable", origin);
+      }
+
+      // Reject if passcode already exists
+      if (settings.passcode_hash) {
+        return errorResponse(403, "Admin passcode is already configured", origin);
+      }
+
+      const newHash = await sha256Hex(passcode);
+      const { error: updateError } = await supabase
+        .from("app_settings")
+        .update({ passcode_hash: newHash, updated_at: new Date().toISOString() })
+        .eq("id", 1);
+
+      if (updateError) {
+        return errorResponse(500, "Failed to save passcode", origin);
+      }
+
+      // Create session
+      await recordLoginAttempt(clientIp, true);
+      const sessionRes = await createSession(req, supabase, clientIp, isCrossOrigin);
+      if (!sessionRes) return errorResponse(500, "Failed to create session", origin);
+      return sessionRes;
+    }
+
+    // POST /passcode-auth/login
+    if (path === "/login" && req.method === "POST") {
+      const rateLimit = await checkRateLimit(clientIp);
+      if (!rateLimit.allowed) {
+        return new Response(JSON.stringify({ error: "Too many attempts. Please try again later." }), {
           status: 429,
           headers: { ...jsonHeaders(origin), "Retry-After": String(Math.ceil(rateLimit.retryAfterMs / 1000)) },
         });
@@ -60,8 +168,7 @@ Deno.serve(async (req: Request) => {
         return errorResponse(400, "Passcode is required", origin);
       }
 
-      // Validate format — passcode should be numeric, reasonable length
-      if (!/^\d{4,10}$/.test(passcode)) {
+      if (passcode.length < 6 || passcode.length > 128) {
         await recordLoginAttempt(clientIp, false);
         return errorResponse(401, "Invalid passcode", origin);
       }
@@ -77,40 +184,21 @@ Deno.serve(async (req: Request) => {
         return errorResponse(500, "Authentication unavailable", origin);
       }
 
+      if (!settings.passcode_hash) {
+        return errorResponse(403, "Admin passcode not configured", origin);
+      }
+
       const inputHash = await sha256Hex(passcode);
       if (inputHash !== settings.passcode_hash) {
         await recordLoginAttempt(clientIp, false);
         return errorResponse(401, "Invalid passcode", origin);
       }
 
-      // Success — create session
+      // Success
       await recordLoginAttempt(clientIp, true);
-
-      const sessionToken = generateSessionToken();
-      const tokenHash = await sha256Hex(sessionToken);
-      const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000).toISOString();
-      const userAgent = req.headers.get("User-Agent") || null;
-
-      const { error: insertError } = await supabase
-        .from("sessions")
-        .insert({
-          token_hash: tokenHash,
-          expires_at: expiresAt,
-          ip_address: clientIp,
-          user_agent: userAgent,
-        });
-
-      if (insertError) {
-        return errorResponse(500, "Failed to create session", origin);
-      }
-
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: {
-          ...jsonHeaders(origin),
-          "Set-Cookie": sessionCookie(sessionToken, SESSION_MAX_AGE, isCrossOrigin),
-        },
-      });
+      const sessionRes = await createSession(req, supabase, clientIp, isCrossOrigin);
+      if (!sessionRes) return errorResponse(500, "Failed to create session", origin);
+      return sessionRes;
     }
 
     // GET /passcode-auth/check
@@ -143,7 +231,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /passcode-auth/sessions — list active sessions (for device management)
+    // GET /passcode-auth/sessions
     if (path === "/sessions" && req.method === "GET") {
       const session = await validateSession(req);
       if (!session) return errorResponse(401, "Unauthorized", origin);
@@ -163,7 +251,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /passcode-auth/revoke-session — revoke a specific session
+    // POST /passcode-auth/revoke-session
     if (path === "/revoke-session" && req.method === "POST") {
       const currentSession = await validateSession(req);
       if (!currentSession) return errorResponse(401, "Unauthorized", origin);
@@ -180,7 +268,6 @@ Deno.serve(async (req: Request) => {
         return errorResponse(400, "Invalid session ID", origin);
       }
 
-      // Don't allow revoking own session via this endpoint (use logout instead)
       if (sessionId === currentSession.id) {
         return errorResponse(400, "Use logout to end your own session", origin);
       }
@@ -197,7 +284,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /passcode-auth/change-passcode
+    // POST /passcode-auth/change-passcode — requires current passcode verification
     if (path === "/change-passcode" && req.method === "POST") {
       const session = await validateSession(req);
       if (!session) return errorResponse(401, "Unauthorized", origin);
@@ -210,17 +297,27 @@ Deno.serve(async (req: Request) => {
       }
 
       const b = body as Record<string, unknown>;
-      const birthDate = typeof b?.birthDate === "string" ? b.birthDate.trim() : "";
+      const currentPasscode = typeof b?.currentPasscode === "string" ? b.currentPasscode : "";
       const newPasscode = typeof b?.newPasscode === "string" ? b.newPasscode : "";
+      const confirmPasscode = typeof b?.confirmPasscode === "string" ? b.confirmPasscode : "";
 
-      if (!/^\d{4,10}$/.test(newPasscode)) {
-        return errorResponse(400, "Passcode must be 4-10 digits", origin);
+      if (currentPasscode.length === 0) {
+        return errorResponse(400, "Current passcode is required", origin);
+      }
+      if (newPasscode.length < 6) {
+        return errorResponse(400, "New passcode must be at least 6 characters", origin);
+      }
+      if (newPasscode !== confirmPasscode) {
+        return errorResponse(400, "New passcodes do not match", origin);
+      }
+      if (newPasscode.length > 128) {
+        return errorResponse(400, "Passcode is too long", origin);
       }
 
       const supabase = getSupabase();
       const { data: settings, error: settingsError } = await supabase
         .from("app_settings")
-        .select("birth_date")
+        .select("passcode_hash")
         .eq("id", 1)
         .maybeSingle();
 
@@ -228,8 +325,10 @@ Deno.serve(async (req: Request) => {
         return errorResponse(500, "Settings unavailable", origin);
       }
 
-      if (!settings.birth_date || birthDate !== settings.birth_date) {
-        return errorResponse(403, "Birth date does not match", origin);
+      // Verify current passcode
+      const currentHash = await sha256Hex(currentPasscode);
+      if (currentHash !== settings.passcode_hash) {
+        return errorResponse(403, "Current passcode is incorrect", origin);
       }
 
       const newHash = await sha256Hex(newPasscode);
@@ -241,6 +340,13 @@ Deno.serve(async (req: Request) => {
       if (updateError) {
         return errorResponse(500, "Failed to update passcode", origin);
       }
+
+      // Invalidate all other sessions (keep current)
+      await supabase
+        .from("sessions")
+        .update({ revoked: true })
+        .neq("id", session.id)
+        .eq("revoked", false);
 
       return new Response(JSON.stringify({ success: true }), {
         status: 200,
@@ -256,7 +362,3 @@ Deno.serve(async (req: Request) => {
     return errorResponse(500, "Internal server error", origin);
   }
 });
-
-
-
-

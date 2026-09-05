@@ -65,7 +65,7 @@ export function SettingsView() {
 
   // Change passcode state
   const [showChangePass, setShowChangePass] = useState(false);
-  const [birthDate, setBirthDate] = useState('');
+  const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [passChanging, setPassChanging] = useState(false);
@@ -278,34 +278,33 @@ export function SettingsView() {
               <small>Pada versi Google Drive, session akan dikelola server.</small>
             </div>
             <div className="setting-card">
-              <label>Change passcode</label>
-              <small style={{ display: 'block', marginBottom: 10 }}>Ubah passcode dengan verifikasi tanggal lahir.</small>
+              <label>Change admin passcode</label>
+              <small style={{ display: 'block', marginBottom: 10 }}>Ubah passcode administrator. Passcode lama akan diverifikasi.</small>
               {!showChangePass ? (
                 <button className="btn" onClick={() => { setShowChangePass(true); setPassError(null); }}>Change Passcode</button>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input
-                    type="date"
+                    type="password"
                     className="setting-input"
-                    placeholder="Tanggal lahir"
-                    value={birthDate}
-                    onChange={(e) => { setBirthDate(e.target.value); setPassError(null); }}
+                    placeholder="Current passcode"
+                    maxLength={128}
+                    value={currentPass}
+                    onChange={(e) => { setCurrentPass(e.target.value); setPassError(null); }}
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
                     className="setting-input"
-                    placeholder="Passcode baru (4-10 digit)"
-                    maxLength={10}
+                    placeholder="New passcode (min. 6 characters)"
+                    maxLength={128}
                     value={newPass}
                     onChange={(e) => { setNewPass(e.target.value); setPassError(null); }}
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
                     className="setting-input"
-                    placeholder="Konfirmasi passcode baru"
-                    maxLength={10}
+                    placeholder="Confirm new passcode"
+                    maxLength={128}
                     value={confirmPass}
                     onChange={(e) => { setConfirmPass(e.target.value); setPassError(null); }}
                   />
@@ -313,16 +312,16 @@ export function SettingsView() {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       className="btn primary"
-                      disabled={passChanging || !birthDate || !newPass || !confirmPass}
+                      disabled={passChanging || !currentPass || !newPass || !confirmPass}
                       onClick={async () => {
+                        if (newPass.length < 6) { setPassError('Passcode baru minimal 6 karakter.'); return; }
                         if (newPass !== confirmPass) { setPassError('Passcode baru tidak cocok.'); return; }
-                        if (!/^\d{4,10}$/.test(newPass)) { setPassError('Passcode harus 4-10 digit angka.'); return; }
                         setPassChanging(true); setPassError(null);
                         try {
-                          await changePasscode(birthDate, newPass);
+                          await changePasscode(currentPass, newPass, confirmPass);
                           toast('Passcode berhasil diubah');
                           setShowChangePass(false);
-                          setBirthDate(''); setNewPass(''); setConfirmPass('');
+                          setCurrentPass(''); setNewPass(''); setConfirmPass('');
                         } catch (e) {
                           setPassError(e instanceof Error ? e.message : 'Gagal mengubah passcode');
                         }
@@ -331,7 +330,7 @@ export function SettingsView() {
                     >
                       {passChanging ? 'Saving...' : 'Save'}
                     </button>
-                    <button className="btn" onClick={() => { setShowChangePass(false); setBirthDate(''); setNewPass(''); setConfirmPass(''); setPassError(null); }}>Cancel</button>
+                    <button className="btn" onClick={() => { setShowChangePass(false); setCurrentPass(''); setNewPass(''); setConfirmPass(''); setPassError(null); }}>Cancel</button>
                   </div>
                 </div>
               )}

@@ -11,13 +11,14 @@ import { SimpleFileView } from '@/components/SimpleFileView';
 import { SettingsView } from '@/components/SettingsView';
 import { ApiView } from '@/components/ApiView';
 import { LoginScreen } from '@/components/LoginScreen';
+import { SetupScreen } from '@/components/SetupScreen';
 import { UploadModal } from '@/components/modals/UploadModal';
 import { PreviewModal } from '@/components/modals/PreviewModal';
 import { ConvertModal } from '@/components/modals/ConvertModal';
 import type { DashboardFile, ExplorerFile, DriveFileItem } from '@/types';
 
 function AppContent() {
-  const { currentView, authLoading, authed, login } = useApp();
+  const { currentView, authLoading, authed, passcodeInitialized, login, setupAdminPasscode } = useApp();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<DriveFileItem | DashboardFile | ExplorerFile | null>(null);
@@ -40,6 +41,10 @@ function AppContent() {
         <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 14 }}>Loading...</div>
       </div>
     );
+  }
+
+  if (!authed && !passcodeInitialized) {
+    return <SetupScreen onSetup={setupAdminPasscode} />;
   }
 
   if (!authed) {

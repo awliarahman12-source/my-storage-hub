@@ -24,7 +24,47 @@ function getHeaders(): Record<string, string> {
 
 // ============ Passcode Auth ============
 
-export type PasscodeError = 'wrong' | 'rate_limited' | 'server' | 'network';
+export type PasscodeError = 'wrong' | 'rate_limited' | 'server' | 'network' | 'not_configured';
+
+export interface AuthStatus {
+  passcodeInitialized: boolean;
+  authed: boolean;
+}
+
+export async function checkAuthStatus(): Promise<AuthStatus> {
+  try {
+    const res = await fetch(`${passcodeUrl()}/status`, {
+      headers: getHeaders(),
+      credentials: 'include',
+    });
+    if (!res.ok) return { passcodeInitialized: false, authed: false };
+    const data = await res.json();
+    return {
+      passcodeInitialized: data.passcodeInitialized === true,
+      authed: data.authed === true,
+    };
+  } catch {
+    return { passcodeInitialized: false, authed: false };
+  }
+}
+
+export async function setupPasscode(passcode: string, confirm: string): Promise<{ success: boolean; error?: PasscodeError }> {
+  try {
+    const res = await fetch(`${passcodeUrl()}/setup`, {
+      method: 'POST',
+      headers: getHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ passcode, confirm }),
+    });
+    if (res.ok) return { success: true };
+    if (res.status === 403) return { success: false, error: 'not_configured' };
+    if (res.status === 429) return { success: false, error: 'rate_limited' };
+    if (res.status >= 500) return { success: false, error: 'server' };
+    return { success: false, error: 'wrong' };
+  } catch {
+    return { success: false, error: 'network' };
+  }
+}
 
 export async function validatePasscode(passcode: string): Promise<{ success: boolean; error?: PasscodeError }> {
   try {
@@ -100,12 +140,12 @@ export async function revokeSession(sessionId: string): Promise<void> {
   if (!res.ok) throw new Error(`Revoke failed (${res.status})`);
 }
 
-export async function changePasscode(birthDate: string, newPasscode: string): Promise<void> {
+export async function changePasscode(currentPasscode: string, newPasscode: string, confirmPasscode: string): Promise<void> {
   const res = await fetch(`${passcodeUrl()}/change-passcode`, {
     method: 'POST',
     headers: getHeaders(),
     credentials: 'include',
-    body: JSON.stringify({ birthDate, newPasscode }),
+    body: JSON.stringify({ currentPasscode, newPasscode, confirmPasscode }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

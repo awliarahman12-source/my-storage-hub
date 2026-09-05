@@ -10,6 +10,7 @@ const errorMessages: Record<PasscodeError, string> = {
   rate_limited: 'Terlalu banyak percobaan. Coba lagi nanti.',
   server: 'Server authentication bermasalah.',
   network: 'Tidak dapat terhubung ke server authentication.',
+  not_configured: 'Admin passcode belum dikonfigurasi.',
 };
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
@@ -48,9 +49,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         <div className="pass-wrap">
           <input
             type={show ? 'text' : 'password'}
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="••••••"
+            maxLength={128}
+            placeholder="Enter passcode"
             value={pass}
             disabled={submitting}
             onChange={(e) => { setPass(e.target.value); setError(false); }}
