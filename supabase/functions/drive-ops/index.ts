@@ -72,7 +72,13 @@ async function refreshAccessToken(node: StorageNodeRow): Promise<string> {
     }),
   });
 
-  if (!res.ok) throw new Error("Token refresh failed");
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    let errMsg = `Token refresh failed (${res.status})`;
+    try { const errData = JSON.parse(errText); errMsg = errData.error_description || errData.error?.message || errMsg; } catch { /* not JSON */ }
+    console.error(`Token refresh failed for node ${node.id}: ${errMsg}`);
+    throw new Error(errMsg);
+  }
   const data = await res.json();
 
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
@@ -115,15 +121,20 @@ async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: nu
   });
 
   if (!res.ok) {
-    const errText = await res.text();
+    const errText = await res.text().catch(() => "");
     if (res.status === 401) {
       const newToken = await refreshAccessToken(node);
       const retryRes = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
         headers: { Authorization: `Bearer ${newToken}` },
       });
-      if (!retryRes.ok) throw new Error(`Drive API error (${retryRes.status})`);
+      if (!retryRes.ok) {
+        const retryErr = await retryRes.text().catch(() => "");
+        console.error(`Drive API list failed after refresh for node ${node.id} (${retryRes.status}): ${retryErr}`);
+        throw new Error(`Drive API error (${retryRes.status})`);
+      }
       return await retryRes.json();
     }
+    console.error(`Drive API list failed for node ${node.id} (${res.status}): ${errText}`);
     throw new Error(`Drive API error (${res.status})`);
   }
 
@@ -300,9 +311,10 @@ Deno.serve(async (req: Request) => {
           for (const f of files) {
             allFiles.push(publicFile(f, node));
           }
-        } catch {
-          // Mark node as error if it fails
-          await supabase.from("storage_nodes").update({ status: "error" }).eq("id", node.id);
+        } catch (err) {
+          // Log the error but do NOT permanently mark the node as "error" —
+          // transient Drive API failures should not break upload routing.
+          console.error(`File listing failed for node ${node.id}:`, err instanceof Error ? err.message : String(err));
         }
       }
 

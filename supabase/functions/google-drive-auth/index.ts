@@ -394,7 +394,13 @@ Deno.serve(async (req: Request) => {
                 grant_type: "refresh_token",
               }),
             });
-            if (!refreshRes.ok) throw new Error("Token refresh failed");
+            if (!refreshRes.ok) {
+              const refreshErrText = await refreshRes.text().catch(() => "");
+              let refreshErrMsg = `Token refresh failed (${refreshRes.status})`;
+              try { const errData = JSON.parse(refreshErrText); refreshErrMsg = errData.error_description || errData.error?.message || refreshErrMsg; } catch { /* not JSON */ }
+              console.error(`Token refresh failed for node ${nodeId}: ${refreshErrMsg}`);
+              throw new Error(refreshErrMsg);
+            }
             const tokens = await refreshRes.json();
             token = tokens.access_token;
             const newExpires = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
@@ -410,6 +416,8 @@ Deno.serve(async (req: Request) => {
         });
 
         if (!quotaRes.ok) {
+          const quotaErrText = await quotaRes.text().catch(() => "");
+          console.error(`Drive quota fetch failed for node ${nodeId} (${quotaRes.status}): ${quotaErrText}`);
           await supabase.from("storage_nodes").update({
             status: "error",
             last_checked_at: new Date().toISOString(),
@@ -434,7 +442,8 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ success: true, status: "connected" }), {
           headers: jsonHeaders(origin),
         });
-      } catch {
+      } catch (err) {
+        console.error(`Node refresh failed for node ${nodeId}:`, err instanceof Error ? err.message : String(err));
         await supabase.from("storage_nodes").update({
           status: "disconnected",
           last_checked_at: new Date().toISOString(),

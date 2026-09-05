@@ -59,7 +59,13 @@ async function refreshAccessToken(node: StorageNodeRow): Promise<string> {
       grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error("Token refresh failed");
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    let errMsg = `Token refresh failed (${res.status})`;
+    try { const errData = JSON.parse(errText); errMsg = errData.error_description || errData.error?.message || errMsg; } catch { /* not JSON */ }
+    console.error(`Token refresh failed for node ${node.id}: ${errMsg}`);
+    throw new Error(errMsg);
+  }
   const data = await res.json();
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
   const supabase = getSupabase();
@@ -106,17 +112,26 @@ async function getConnectedNodes(supabase: ReturnType<typeof getSupabase>): Prom
 }
 
 async function getDriveQuotaBytes(node: StorageNodeRow): Promise<{ total: number | null; used: number | null }> {
-  const token = await getValidAccessToken(node);
-  const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return { total: null, used: null };
-  const data = await res.json();
-  const sq = data?.storageQuota;
-  return {
-    total: sq?.limit ? Number(sq.limit) : null,
-    used: sq?.usage ? Number(sq.usage) : null,
-  };
+  try {
+    const token = await getValidAccessToken(node);
+    const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`Drive quota fetch failed for node ${node.id} (${res.status}): ${errText}`);
+      return { total: null, used: null };
+    }
+    const data = await res.json();
+    const sq = data?.storageQuota;
+    return {
+      total: sq?.limit ? Number(sq.limit) : null,
+      used: sq?.usage ? Number(sq.usage) : null,
+    };
+  } catch (err) {
+    console.error(`Drive quota error for node ${node.id}:`, err instanceof Error ? err.message : String(err));
+    return { total: null, used: null };
+  }
 }
 
 async function selectBestNode(
