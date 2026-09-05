@@ -548,7 +548,7 @@ Deno.serve(async (req: Request) => {
       const nodes = await getConnectedNodes(supabase);
 
       if (nodes.length === 0) {
-        return new Response(JSON.stringify({ error: "No connected storage nodes" }), {
+        return new Response(JSON.stringify({ error: "No storage node is ready for upload. Connect a Google Drive account and ensure it is enabled." }), {
           status: 400,
           headers: { ...ch, "Content-Type": "application/json" },
         });

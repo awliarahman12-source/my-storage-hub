@@ -54,7 +54,7 @@ export function StoragePool() {
         <>
           <div className="big">{storageNodes.length} {storageNodes.length === 1 ? 'Drive' : 'Drives'}</div>
           <div className="sub">
-            <b>{storagePool?.connectedDrives || storageNodes.length}</b> connected · <span>{storagePool?.healthyDrives || 0} healthy</span>
+            <b>{storageNodes.filter((n) => n.status === 'connected' && n.enabled).length}</b> connected · <span>{storagePool?.healthyDrives || 0} healthy</span>
           </div>
           <div className="usage">
             <div className="usage-row">

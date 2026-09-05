@@ -214,10 +214,10 @@ Deno.serve(async (req: Request) => {
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: "code",
-        scope: "https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+        scope: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
         state,
         access_type: "offline",
-        prompt: "select_account",
+        prompt: "consent",
       });
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
