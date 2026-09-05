@@ -5,10 +5,7 @@ import {
   jsonHeaders,
   sha256Hex,
   generateSessionToken,
-  sessionCookie,
-  getCookie,
   validateSession,
-  SESSION_COOKIE,
   SESSION_MAX_AGE,
   checkRateLimit,
   recordLoginAttempt,
@@ -17,7 +14,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 
-async function createSession(req: Request, supabase: ReturnType<typeof getSupabase>, clientIp: string, isCrossOrigin: boolean): Promise<Response | null> {
+async function createSession(req: Request, supabase: ReturnType<typeof getSupabase>, clientIp: string): Promise<Response | null> {
   const sessionToken = generateSessionToken();
   const tokenHash = await sha256Hex(sessionToken);
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000).toISOString();
@@ -36,10 +33,7 @@ async function createSession(req: Request, supabase: ReturnType<typeof getSupaba
 
   return new Response(JSON.stringify({ success: true, sessionToken }), {
     status: 200,
-    headers: {
-      ...jsonHeaders(req.headers.get("Origin")),
-      "Set-Cookie": sessionCookie(sessionToken, SESSION_MAX_AGE, isCrossOrigin),
-    },
+    headers: jsonHeaders(req.headers.get("Origin")),
   });
 }
 
@@ -55,9 +49,6 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/passcode-auth/, "");
   const clientIp = getClientIp(req);
-  const requestOrigin = req.headers.get("Origin");
-  const supabaseHost = url.hostname;
-  const isCrossOrigin = requestOrigin ? new URL(requestOrigin).hostname !== supabaseHost : false;
 
   try {
     // GET /passcode-auth/status — check if passcode is initialized + session valid
@@ -140,7 +131,7 @@ Deno.serve(async (req: Request) => {
 
       // Create session
       await recordLoginAttempt(clientIp, true);
-      const sessionRes = await createSession(req, supabase, clientIp, isCrossOrigin);
+      const sessionRes = await createSession(req, supabase, clientIp);
       if (!sessionRes) return errorResponse(500, "Failed to create session", origin);
       return sessionRes;
     }
@@ -196,7 +187,7 @@ Deno.serve(async (req: Request) => {
 
       // Success
       await recordLoginAttempt(clientIp, true);
-      const sessionRes = await createSession(req, supabase, clientIp, isCrossOrigin);
+      const sessionRes = await createSession(req, supabase, clientIp);
       if (!sessionRes) return errorResponse(500, "Failed to create session", origin);
       return sessionRes;
     }
@@ -212,8 +203,7 @@ Deno.serve(async (req: Request) => {
 
     // POST /passcode-auth/logout
     if (path === "/logout" && req.method === "POST") {
-      let token = getCookie(req, SESSION_COOKIE);
-      if (!token) token = req.headers.get("X-Session-Token");
+      const token = req.headers.get("X-Session-Token");
       if (token) {
         const tokenHash = await sha256Hex(token);
         const supabase = getSupabase();
@@ -225,10 +215,7 @@ Deno.serve(async (req: Request) => {
 
       return new Response(JSON.stringify({ success: true }), {
         status: 200,
-        headers: {
-          ...jsonHeaders(origin),
-          "Set-Cookie": sessionCookie("", 0, isCrossOrigin),
-        },
+        headers: jsonHeaders(origin),
       });
     }
 

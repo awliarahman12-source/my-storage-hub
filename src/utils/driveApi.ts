@@ -52,7 +52,7 @@ export async function checkAuthStatus(): Promise<AuthStatus> {
   try {
     const res = await fetch(`${passcodeUrl()}/status`, {
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
     });
     if (!res.ok) return { passcodeInitialized: false, authed: false };
     const data = await res.json();
@@ -70,7 +70,7 @@ export async function setupPasscode(passcode: string, confirm: string): Promise<
     const res = await fetch(`${passcodeUrl()}/setup`, {
       method: 'POST',
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
       body: JSON.stringify({ passcode, confirm }),
     });
     if (res.ok) {
@@ -92,7 +92,7 @@ export async function validatePasscode(passcode: string): Promise<{ success: boo
     const res = await fetch(`${passcodeUrl()}/login`, {
       method: 'POST',
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
       body: JSON.stringify({ passcode }),
     });
     if (res.ok) {
@@ -113,7 +113,7 @@ export async function checkSession(): Promise<boolean> {
   try {
     const res = await fetch(`${passcodeUrl()}/check`, {
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
     });
     if (!res.ok) return false;
     const data = await res.json();
@@ -128,7 +128,7 @@ export async function logoutSession(): Promise<void> {
     await fetch(`${passcodeUrl()}/logout`, {
       method: 'POST',
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
     });
   } catch {
     // ignore
@@ -149,7 +149,7 @@ export interface SessionInfo {
 export async function fetchActiveSessions(): Promise<SessionInfo[]> {
   const res = await fetch(`${passcodeUrl()}/sessions`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch sessions (${res.status})`);
   const data = await res.json();
@@ -160,7 +160,7 @@ export async function revokeSession(sessionId: string): Promise<void> {
   const res = await fetch(`${passcodeUrl()}/revoke-session`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ sessionId }),
   });
   if (!res.ok) throw new Error(`Revoke failed (${res.status})`);
@@ -170,7 +170,7 @@ export async function changePasscode(currentPasscode: string, newPasscode: strin
   const res = await fetch(`${passcodeUrl()}/change-passcode`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ currentPasscode, newPasscode, confirmPasscode }),
   });
   if (!res.ok) {
@@ -189,7 +189,7 @@ export async function refreshNode(nodeId: string): Promise<void> {
   const res = await fetch(`${googleDriveAuthUrl()}/nodes/${nodeId}/refresh`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
 }
@@ -198,7 +198,7 @@ export async function setNodePriority(nodeId: string, priority: number): Promise
   const res = await fetch(`${googleDriveAuthUrl()}/nodes/${nodeId}/priority`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ priority }),
   });
   if (!res.ok) throw new Error(`Priority update failed (${res.status})`);
@@ -208,7 +208,7 @@ export async function toggleNodeEnabled(nodeId: string, enabled: boolean): Promi
   const res = await fetch(`${googleDriveAuthUrl()}/nodes/${nodeId}/toggle`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ enabled }),
   });
   if (!res.ok) throw new Error(`Toggle failed (${res.status})`);
@@ -219,7 +219,7 @@ export async function toggleNodeEnabled(nodeId: string, enabled: boolean): Promi
 export async function fetchStorageNodesWithQuota(): Promise<StorageNode[]> {
   const res = await fetch(`${driveOpsUrl()}/nodes`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch nodes (${res.status})`);
   const data = await res.json();
@@ -229,7 +229,7 @@ export async function fetchStorageNodesWithQuota(): Promise<StorageNode[]> {
 export async function fetchStoragePool(): Promise<StoragePoolSummary> {
   const res = await fetch(`${driveOpsUrl()}/pool`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch pool (${res.status})`);
   const data = await res.json();
@@ -254,7 +254,7 @@ export async function fetchFiles(opts?: {
 
   const res = await fetch(`${driveOpsUrl()}/files?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch files (${res.status})`);
   const data = await res.json();
@@ -266,7 +266,7 @@ export async function searchFiles(query: string): Promise<DriveFileItem[]> {
   params.set('q', query);
   const res = await fetch(`${driveOpsUrl()}/search?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Search failed (${res.status})`);
   const data = await res.json();
@@ -279,7 +279,7 @@ export async function renameFile(fileId: string, nodeId: string, newName: string
   const res = await fetch(`${driveOpsUrl()}/rename`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, newName }),
   });
   if (!res.ok) throw new Error(`Rename failed (${res.status})`);
@@ -291,7 +291,7 @@ export async function trashFile(fileId: string, nodeId: string): Promise<void> {
   const res = await fetch(`${driveOpsUrl()}/trash`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId }),
   });
   if (!res.ok) throw new Error(`Trash failed (${res.status})`);
@@ -301,7 +301,7 @@ export async function untrashFile(fileId: string, nodeId: string): Promise<void>
   const res = await fetch(`${driveOpsUrl()}/untrash`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId }),
   });
   if (!res.ok) throw new Error(`Restore failed (${res.status})`);
@@ -311,7 +311,7 @@ export async function starFile(fileId: string, nodeId: string, starred: boolean)
   const res = await fetch(`${driveOpsUrl()}/star`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, starred }),
   });
   if (!res.ok) throw new Error(`Star failed (${res.status})`);
@@ -321,7 +321,7 @@ export async function copyFile(fileId: string, nodeId: string): Promise<DriveFil
   const res = await fetch(`${driveOpsUrl()}/copy`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId }),
   });
   if (!res.ok) throw new Error(`Copy failed (${res.status})`);
@@ -333,7 +333,7 @@ export async function moveFile(fileId: string, nodeId: string, newParentId: stri
   const res = await fetch(`${driveOpsUrl()}/move`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, newParentId }),
   });
   if (!res.ok) throw new Error(`Move failed (${res.status})`);
@@ -343,7 +343,7 @@ export async function deleteFile(fileId: string, nodeId: string): Promise<void> 
   const res = await fetch(`${driveOpsUrl()}/delete`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId }),
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status})`);
@@ -353,7 +353,7 @@ export async function createFolder(nodeId: string, name: string, parentId?: stri
   const res = await fetch(`${driveOpsUrl()}/create-folder`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ nodeId, name, parentId }),
   });
   if (!res.ok) throw new Error(`Create folder failed (${res.status})`);
@@ -365,7 +365,7 @@ export async function shareFile(fileId: string, nodeId: string, access: string):
   const res = await fetch(`${driveOpsUrl()}/share`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, access }),
   });
   if (!res.ok) throw new Error(`Share failed (${res.status})`);
@@ -398,7 +398,7 @@ export async function fetchFolders(nodeId: string): Promise<{ id: string; name: 
   params.set('nodeId', nodeId);
   const res = await fetch(`${driveOpsUrl()}/folders?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch folders (${res.status})`);
   const data = await res.json();
@@ -412,7 +412,7 @@ export async function fetchTextPreview(fileId: string, nodeId: string): Promise<
   params.set('nodeId', nodeId);
   const res = await fetch(`${driveOpsUrl()}/text-preview/${fileId}?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Text preview failed (${res.status})`);
   const data = await res.json();
@@ -425,7 +425,7 @@ export async function initUpload(nodeId: string, filename: string, mimeType: str
   const res = await fetch(`${driveUploadUrl()}/init`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ nodeId, filename, mimeType, size, parentGoogleId }),
   });
   if (!res.ok) throw new Error(`Init upload failed (${res.status})`);
@@ -443,7 +443,7 @@ export async function startUpload(sessionId: string, file: File | ArrayBuffer, m
   const res = await fetch(`${driveUploadUrl()}/start/${sessionId}`, {
     method: 'POST',
     headers,
-    credentials: 'include',
+    credentials: 'omit',
     body: file,
   });
   if (!res.ok) {
@@ -468,7 +468,7 @@ export async function startUploadWithProgress(
     xhr.setRequestHeader('Content-Type', mimeType);
     const sessionToken = getSessionToken();
     if (sessionToken) xhr.setRequestHeader('X-Session-Token', sessionToken);
-    xhr.withCredentials = true;
+    xhr.withCredentials = false;
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
@@ -502,7 +502,7 @@ export async function startUploadWithProgress(
 export async function fetchUploadSessions(): Promise<UploadSession[]> {
   const res = await fetch(`${driveUploadUrl()}/sessions`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch sessions (${res.status})`);
   const data = await res.json();
@@ -513,7 +513,7 @@ export async function retryUpload(sessionId: string): Promise<UploadSession> {
   const res = await fetch(`${driveUploadUrl()}/retry/${sessionId}`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Retry failed (${res.status})`);
   const data = await res.json();
@@ -524,7 +524,7 @@ export async function cancelUpload(sessionId: string): Promise<UploadSession> {
   const res = await fetch(`${driveUploadUrl()}/cancel/${sessionId}`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Cancel failed (${res.status})`);
   const data = await res.json();
@@ -535,7 +535,7 @@ export async function deleteUploadSession(sessionId: string): Promise<void> {
   const res = await fetch(`${driveUploadUrl()}/sessions/${sessionId}`, {
     method: 'DELETE',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Delete session failed (${res.status})`);
 }
@@ -544,7 +544,7 @@ export async function routeUpload(fileSizeMB: number, mode: RoutingMode, preferr
   const res = await fetch(`${driveUploadUrl()}/route`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileSizeMB, mode, preferredNodeId }),
   });
   if (!res.ok) throw new Error(`Routing failed (${res.status})`);
@@ -560,7 +560,7 @@ export async function checkDuplicate(filename: string, parentGoogleId?: string):
   if (parentGoogleId) params.set('parentGoogleId', parentGoogleId);
   const res = await fetch(`${driveOpsUrl()}/check-duplicate?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) return { exists: false, nodes: [] };
   const data = await res.json();
@@ -585,7 +585,7 @@ export async function fetchActivityLogs(limit?: number): Promise<ActivityLogEntr
   if (limit) params.set('limit', String(limit));
   const res = await fetch(`${driveOpsUrl()}/activity?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch activity logs (${res.status})`);
   const data = await res.json();
@@ -598,7 +598,7 @@ export async function fetchActivityLogsFiltered(filter: string, limit?: number):
   if (limit) params.set('limit', String(limit));
   const res = await fetch(`${driveOpsUrl()}/activity?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch activity logs (${res.status})`);
   const data = await res.json();
@@ -610,7 +610,7 @@ export async function logActivity(action: string, target?: string, storageNodeId
     await fetch(`${driveOpsUrl()}/activity`, {
       method: 'POST',
       headers: getHeaders(),
-      credentials: 'include',
+      credentials: 'omit',
       body: JSON.stringify({ action, target, storageNodeId, storageNodeName, status: status || 'success' }),
     });
   } catch {
@@ -626,7 +626,7 @@ export async function fetchPermissions(fileId: string, nodeId: string): Promise<
   params.set('nodeId', nodeId);
   const res = await fetch(`${driveOpsUrl()}/permissions?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch permissions (${res.status})`);
   const data = await res.json();
@@ -637,7 +637,7 @@ export async function addPermission(fileId: string, nodeId: string, email: strin
   const res = await fetch(`${driveOpsUrl()}/permissions`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, email, role }),
   });
   if (!res.ok) {
@@ -652,7 +652,7 @@ export async function removePermission(fileId: string, nodeId: string, permissio
   const res = await fetch(`${driveOpsUrl()}/permissions`, {
     method: 'DELETE',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ fileId, nodeId, permissionId }),
   });
   if (!res.ok) {
@@ -667,7 +667,7 @@ export async function fetchShareLink(fileId: string, nodeId: string): Promise<{ 
   params.set('nodeId', nodeId);
   const res = await fetch(`${driveOpsUrl()}/share-link?${params}`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch share link (${res.status})`);
   const data = await res.json();
@@ -680,7 +680,7 @@ export async function registerDevice(deviceId: string, deviceName: string, brows
   const res = await fetch(`${driveOpsUrl()}/devices/register`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ deviceId, deviceName, browser, os, userAgent }),
   });
   if (!res.ok) throw new Error(`Device registration failed (${res.status})`);
@@ -691,7 +691,7 @@ export async function registerDevice(deviceId: string, deviceName: string, brows
 export async function fetchDevices(): Promise<DeviceInfo[]> {
   const res = await fetch(`${driveOpsUrl()}/devices`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch devices (${res.status})`);
   const data = await res.json();
@@ -702,7 +702,7 @@ export async function revokeDevice(deviceId: string): Promise<void> {
   const res = await fetch(`${driveOpsUrl()}/devices/revoke`, {
     method: 'POST',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
     body: JSON.stringify({ deviceId }),
   });
   if (!res.ok) throw new Error(`Revoke failed (${res.status})`);

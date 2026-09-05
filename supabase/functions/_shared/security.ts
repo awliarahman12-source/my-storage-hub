@@ -73,7 +73,6 @@ export async function sha256Hex(input: string): Promise<string> {
 
 // ============ Session Management ============
 
-export const SESSION_COOKIE = "ms_session";
 export const SESSION_MAX_AGE = 86400; // 24 hours
 
 export function generateSessionToken(): string {
@@ -85,12 +84,6 @@ export function generateSessionToken(): string {
     result += chars[arr[i] % chars.length];
   }
   return result;
-}
-
-export function sessionCookie(value: string, maxAge: number, isCrossOrigin = false): string {
-  const sameSite = isCrossOrigin ? "None" : "Lax";
-  const secure = isCrossOrigin ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${value}; Path=/; HttpOnly${secure}; SameSite=${sameSite}; Max-Age=${maxAge}`;
 }
 
 export function getCookie(req: Request, name: string): string | null {
@@ -114,8 +107,7 @@ export interface SessionInfo {
 }
 
 export async function validateSession(req: Request): Promise<SessionInfo | null> {
-  let token = getCookie(req, SESSION_COOKIE);
-  if (!token) token = req.headers.get("X-Session-Token");
+  let token = req.headers.get("X-Session-Token");
   if (!token) {
     const url = new URL(req.url);
     token = url.searchParams.get("st");

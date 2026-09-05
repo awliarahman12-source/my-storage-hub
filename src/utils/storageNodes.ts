@@ -20,7 +20,7 @@ function getHeaders(): Record<string, string> {
 export async function fetchStorageNodes(): Promise<StorageNode[]> {
   const res = await fetch(`${getBaseUrl()}/nodes`, {
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to fetch storage nodes (${res.status})`);
   const data = await res.json();
@@ -32,7 +32,7 @@ export async function deleteStorageNode(nodeId: string): Promise<void> {
   const res = await fetch(`${getBaseUrl()}/nodes/${nodeId}`, {
     method: 'DELETE',
     headers: getHeaders(),
-    credentials: 'include',
+    credentials: 'omit',
   });
   if (!res.ok) throw new Error(`Failed to disconnect storage node (${res.status})`);
 }
