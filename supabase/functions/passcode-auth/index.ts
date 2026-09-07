@@ -288,6 +288,7 @@ Deno.serve(async (req: Request) => {
       const currentPasscode = typeof b?.currentPasscode === "string" ? b.currentPasscode : "";
       const newPasscode = typeof b?.newPasscode === "string" ? b.newPasscode : "";
       const confirmPasscode = typeof b?.confirmPasscode === "string" ? b.confirmPasscode : "";
+      const birthDate = typeof b?.birthDate === "string" ? b.birthDate : "";
 
       if (currentPasscode.length === 0) {
         return errorResponse(400, "Current passcode is required", origin);
@@ -305,7 +306,7 @@ Deno.serve(async (req: Request) => {
       const supabase = getSupabase();
       const { data: settings, error: settingsError } = await supabase
         .from("app_settings")
-        .select("passcode_hash")
+        .select("passcode_hash,birth_date")
         .eq("id", 1)
         .maybeSingle();
 
@@ -317,6 +318,15 @@ Deno.serve(async (req: Request) => {
       const currentHash = await sha256Hex(currentPasscode);
       if (currentHash !== settings.passcode_hash) {
         return errorResponse(403, "Current passcode is incorrect", origin);
+      }
+
+      // Verify birth date (hardcoded verification date — do not read from DB)
+      const VERIFICATION_BIRTH_DATE = "2026-01-11";
+      if (birthDate.length === 0) {
+        return errorResponse(400, "Birth date is required", origin);
+      }
+      if (birthDate !== VERIFICATION_BIRTH_DATE) {
+        return errorResponse(403, "Birth date verification failed", origin);
       }
 
       const newHash = await sha256Hex(newPasscode);

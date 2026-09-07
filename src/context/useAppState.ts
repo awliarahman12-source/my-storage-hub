@@ -29,6 +29,7 @@ export function useAppState(): AppContextValue {
 
   const [storageNodes, setStorageNodes] = useState<StorageNode[]>([]);
   const [loadingNodes, setLoadingNodes] = useState(false);
+  const [nodesError, setNodesError] = useState(false);
   const [storagePool, setStoragePool] = useState<StoragePoolSummary | null>(null);
 
   // Auth
@@ -37,15 +38,36 @@ export function useAppState(): AppContextValue {
   const [authError, setAuthError] = useState(false);
   const [passcodeInitialized, setPasscodeInitialized] = useState(false);
 
+  const refreshStorageNodes = useCallback(async () => {
+    setLoadingNodes(true);
+    setNodesError(false);
+    try {
+      const [nodes, pool] = await Promise.all([
+        driveApi.fetchStorageNodesWithQuota(),
+        driveApi.fetchStoragePool().catch(() => null),
+      ]);
+      setStorageNodes(nodes);
+      if (pool) setStoragePool(pool);
+    } catch {
+      setStorageNodes([]);
+      setNodesError(true);
+    } finally {
+      setLoadingNodes(false);
+    }
+  }, []);
+
   const login = useCallback(async (passcode: string): Promise<{ success: boolean; error?: PasscodeError }> => {
     try {
       const result = await driveApi.validatePasscode(passcode);
-      if (result.success) setAuthed(true);
+      if (result.success) {
+        setAuthed(true);
+        void refreshStorageNodes();
+      }
       return result;
     } catch {
       return { success: false, error: 'network' };
     }
-  }, []);
+  }, [refreshStorageNodes]);
 
   const setupAdminPasscode = useCallback(async (passcode: string, confirm: string): Promise<{ success: boolean; error?: PasscodeError }> => {
     try {
@@ -53,16 +75,24 @@ export function useAppState(): AppContextValue {
       if (result.success) {
         setAuthed(true);
         setPasscodeInitialized(true);
+        void refreshStorageNodes();
       }
       return result;
     } catch {
       return { success: false, error: 'network' };
     }
-  }, []);
+  }, [refreshStorageNodes]);
 
   const logout = useCallback(async () => {
     await driveApi.logoutSession();
     setAuthed(false);
+    setDriveFiles([]);
+    setHasMoreFiles(false);
+    setFilesError(false);
+    setCurrentFolderId('root');
+    setCurrentFolderName('My Storage');
+    setBreadcrumbs([]);
+    setUploadSessions([]);
   }, []);
 
   useEffect(() => {
@@ -92,9 +122,13 @@ export function useAppState(): AppContextValue {
 
   const [driveFiles, setDriveFiles] = useState<DriveFileItem[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
+  const [hasMoreFiles, setHasMoreFiles] = useState(false);
+  const [filesError, setFilesError] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState('root');
   const [currentFolderName, setCurrentFolderName] = useState('My Storage');
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  const pageTokensRef = useRef<Record<string, string> | undefined>(undefined);
 
   const [uploadSessions, setUploadSessions] = useState<UploadSession[]>([]);
 
@@ -135,22 +169,6 @@ export function useAppState(): AppContextValue {
   const setRoutingMode = useCallback((m: RoutingMode) => {
     setRoutingModeState(m);
     localStorage.setItem('ms_routing', m);
-  }, []);
-
-  const refreshStorageNodes = useCallback(async () => {
-    setLoadingNodes(true);
-    try {
-      const [nodes, pool] = await Promise.all([
-        driveApi.fetchStorageNodesWithQuota(),
-        driveApi.fetchStoragePool().catch(() => null),
-      ]);
-      setStorageNodes(nodes);
-      if (pool) setStoragePool(pool);
-    } catch {
-      setStorageNodes([]);
-    } finally {
-      setLoadingNodes(false);
-    }
   }, []);
 
   // Load storage nodes on mount
@@ -219,41 +237,100 @@ export function useAppState(): AppContextValue {
 
   // ============ File Navigation ============
 
+  const buildFetchOpts = useCallback((): Parameters<typeof driveApi.fetchFiles>[0] => {
+    switch (currentView) {
+      case 'trash':
+        return { trashed: true, pageSize: 50 };
+      case 'starred':
+        return { starredOnly: true, pageSize: 50 };
+      case 'photos':
+        return { typeFilter: 'img', pageSize: 50 };
+      case 'videos':
+        return { typeFilter: 'video', pageSize: 50 };
+      case 'folders':
+        return { typeFilter: 'folder', pageSize: 50 };
+      case 'shared':
+        return { sharedOnly: true, pageSize: 50 };
+      case 'shared-folder':
+        return { sharedOnly: true, typeFilter: 'folder', pageSize: 50 };
+      case 'recent':
+        return { pageSize: 50, orderBy: 'modifiedTime desc' };
+      case 'drives':
+        return { typeFilter: 'folder', pageSize: 50 };
+      case 'files':
+      case 'dashboard':
+      default:
+        return { folderId: currentFolderId, pageSize: 50 };
+    }
+  }, [currentView, currentFolderId]);
+
   const refreshFiles = useCallback(async () => {
     if (fileLoadAbort.current) {
       fileLoadAbort.current.abort();
     }
     setLoadingFiles(true);
+    setFilesError(false);
+    pageTokensRef.current = undefined;
     try {
-      let files: DriveFileItem[];
-      if (currentView === 'trash') {
-        files = await driveApi.fetchFiles({ trashed: true });
-      } else if (currentView === 'starred') {
-        files = await driveApi.fetchFiles({ starredOnly: true });
-      } else if (currentView === 'photos') {
-        files = await driveApi.fetchFiles({ typeFilter: 'img', folderId: 'root' });
-      } else if (currentView === 'videos') {
-        files = await driveApi.fetchFiles({ typeFilter: 'video', folderId: 'root' });
-      } else if (currentView === 'folders') {
-        files = await driveApi.fetchFiles({ typeFilter: 'folder', folderId: 'root' });
-      } else if (currentView === 'files' || currentView === 'dashboard') {
-        files = await driveApi.fetchFiles({ folderId: currentFolderId });
-      } else {
-        files = await driveApi.fetchFiles({ folderId: 'root' });
-      }
-      setDriveFiles(files);
+      const result = await driveApi.fetchFiles(buildFetchOpts());
+      setDriveFiles(result.files);
+      setHasMoreFiles(result.hasMore);
+      pageTokensRef.current = result.pageTokens;
     } catch {
       setDriveFiles([]);
+      setHasMoreFiles(false);
+      setFilesError(true);
     } finally {
       setLoadingFiles(false);
     }
-  }, [currentView, currentFolderId]);
+  }, [buildFetchOpts]);
+
+  const loadMoreFiles = useCallback(async () => {
+    if (loadingMoreFiles || !hasMoreFiles) return;
+    const tokens = pageTokensRef.current;
+    if (!tokens) return;
+    setLoadingMoreFiles(true);
+    try {
+      // Pick the first available page token to fetch next page
+      const firstToken = Object.values(tokens)[0];
+      const result = await driveApi.fetchFiles({ ...buildFetchOpts(), pageToken: firstToken });
+      setDriveFiles((prev) => {
+        const seen = new Set(prev.map((f) => f.id));
+        const merged = [...prev];
+        for (const f of result.files) {
+          if (!seen.has(f.id)) {
+            merged.push(f);
+            seen.add(f.id);
+          }
+        }
+        return merged;
+      });
+      setHasMoreFiles(result.hasMore);
+      pageTokensRef.current = result.pageTokens;
+    } catch {
+      // Don't clear existing files on load-more error
+      setHasMoreFiles(false);
+    } finally {
+      setLoadingMoreFiles(false);
+    }
+  }, [buildFetchOpts, loadingMoreFiles, hasMoreFiles]);
+
+  // Reset folder navigation when switching views (not when navigating folders within same view)
+  useEffect(() => {
+    if (currentView !== 'files' && currentView !== 'dashboard') {
+      setCurrentFolderId('root');
+      setCurrentFolderName('My Storage');
+      setBreadcrumbs([]);
+    }
+  }, [currentView]);
 
   useEffect(() => {
     if (storageNodes.some((n) => n.status === 'connected')) {
       void refreshFiles();
     } else {
       setDriveFiles([]);
+      setHasMoreFiles(false);
+      setFilesError(false);
     }
   }, [currentView, currentFolderId, storageNodes, refreshFiles]);
 
@@ -290,16 +367,16 @@ export function useAppState(): AppContextValue {
   // ============ File Operations ============
 
   const renameDriveFile = useCallback(async (fileId: string, nodeId: string, newName: string) => {
-    await driveApi.renameFile(fileId, nodeId, newName);
+    const updated = await driveApi.renameFile(fileId, nodeId, newName);
+    setDriveFiles((prev) => prev.map((f) => f.id === fileId && f.nodeId === nodeId ? { ...f, name: updated.name } : f));
     toast('File renamed');
-    void refreshFiles();
-  }, [toast, refreshFiles]);
+  }, [toast]);
 
   const trashDriveFile = useCallback(async (fileId: string, nodeId: string) => {
     await driveApi.trashFile(fileId, nodeId);
+    setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('Moved to trash');
-    void refreshFiles();
-  }, [toast, refreshFiles]);
+  }, [toast]);
 
   const untrashDriveFile = useCallback(async (fileId: string, nodeId: string) => {
     await driveApi.untrashFile(fileId, nodeId);
@@ -309,26 +386,32 @@ export function useAppState(): AppContextValue {
 
   const starDriveFile = useCallback(async (fileId: string, nodeId: string, starred: boolean) => {
     await driveApi.starFile(fileId, nodeId, starred);
-    void refreshFiles();
-  }, [refreshFiles]);
+    setDriveFiles((prev) => prev.map((f) => f.id === fileId && f.nodeId === nodeId ? { ...f, starred } : f));
+  }, []);
 
-  const copyDriveFile = useCallback(async (fileId: string, nodeId: string) => {
-    await driveApi.copyFile(fileId, nodeId);
+  const copyDriveFile = useCallback(async (fileId: string, nodeId: string, destNodeId?: string, destFolderId?: string) => {
+    const copied = await driveApi.copyFile(fileId, nodeId, destNodeId, destFolderId);
+    // If copied to same view, add to local list; otherwise just refresh
+    if (!destNodeId || destNodeId === nodeId) {
+      setDriveFiles((prev) => [...prev, copied]);
+    } else {
+      void refreshFiles();
+    }
     toast('File copied');
-    void refreshFiles();
   }, [toast, refreshFiles]);
 
-  const moveDriveFile = useCallback(async (fileId: string, nodeId: string, newParentId: string) => {
-    await driveApi.moveFile(fileId, nodeId, newParentId);
+  const moveDriveFile = useCallback(async (fileId: string, nodeId: string, newParentId: string, destNodeId?: string) => {
+    await driveApi.moveFile(fileId, nodeId, newParentId, destNodeId);
+    // Remove from current view since it moved away
+    setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('File moved');
-    void refreshFiles();
-  }, [toast, refreshFiles]);
+  }, [toast]);
 
   const deleteDriveFile = useCallback(async (fileId: string, nodeId: string) => {
     await driveApi.deleteFile(fileId, nodeId);
+    setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('File deleted permanently');
-    void refreshFiles();
-  }, [toast, refreshFiles]);
+  }, [toast]);
 
   const createDriveFolder = useCallback(async (nodeId: string, name: string, parentId?: string) => {
     await driveApi.createFolder(nodeId, name, parentId);
@@ -342,7 +425,18 @@ export function useAppState(): AppContextValue {
     void refreshFiles();
   }, [toast, refreshFiles]);
 
-  // ============ Upload Queue ============
+  // ============ Upload Queue (5-concurrent) ============
+
+  const MAX_CONCURRENT_UPLOADS = 5;
+
+  // Store File objects for retry-without-reselect
+  const fileRegistry = useRef<Map<string, File>>(new Map());
+  // Track AbortControllers for cancel support
+  const uploadAbortControllers = useRef<Map<string, AbortController>>(new Map());
+  // Queue of session IDs waiting to be processed
+  const uploadQueue = useRef<string[]>([]);
+  // Track how many uploads are currently active
+  const activeUploadCount = useRef(0);
 
   const refreshUploadSessions = useCallback(async () => {
     try {
@@ -353,18 +447,80 @@ export function useAppState(): AppContextValue {
     }
   }, []);
 
-  // Track active AbortControllers for cancel support
-  const uploadAbortControllers = useRef<Map<string, AbortController>>(new Map());
+  const processQueue = useCallback(async () => {
+    // Process queued items up to concurrency limit
+    while (uploadQueue.current.length > 0 && activeUploadCount.current < MAX_CONCURRENT_UPLOADS) {
+      const sessionId = uploadQueue.current.shift();
+      if (!sessionId) break;
+      const file = fileRegistry.current.get(sessionId);
+      if (!file) continue;
 
-  const uploadFiles = useCallback(async (files: FileList, targetNodeId?: string) => {
-    if (!files?.length) return;
+      activeUploadCount.current++;
+      void (async () => {
+        const abortController = new AbortController();
+        uploadAbortControllers.current.set(sessionId, abortController);
+
+        setUploadSessions((prev) => prev.map((s) =>
+          s.id === sessionId ? { ...s, status: 'uploading', progress: 0 } : s
+        ));
+
+        try {
+          await driveApi.startUploadWithProgress(
+            sessionId,
+            file,
+            file.type || 'application/octet-stream',
+            (uploaded, total) => {
+              setUploadSessions((prev) => prev.map((s) =>
+                s.id === sessionId
+                  ? { ...s, progress: Math.round((uploaded / total) * 100), status: 'uploading' }
+                  : s
+              ));
+            },
+            abortController.signal,
+          );
+          setUploadSessions((prev) => prev.map((s) =>
+            s.id === sessionId ? { ...s, status: 'completed', progress: 100 } : s
+          ));
+          toast(file.name + ' uploaded');
+          void refreshFiles();
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            setUploadSessions((prev) => prev.map((s) =>
+              s.id === sessionId ? { ...s, status: 'cancelled' } : s
+            ));
+          } else {
+            const msg = err instanceof Error ? err.message : 'Upload failed';
+            setUploadSessions((prev) => prev.map((s) =>
+              s.id === sessionId ? { ...s, status: 'failed', errorMessage: msg } : s
+            ));
+          }
+        } finally {
+          uploadAbortControllers.current.delete(sessionId);
+          activeUploadCount.current--;
+          // Process next queued item
+          void processQueue();
+        }
+      })();
+    }
+  }, [toast, refreshFiles]);
+
+  const sanitizeFilename = (name: string): string => {
+    return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, ' ').trim();
+  };
+
+  const uploadFiles = useCallback(async (files: FileList | File[], targetNodeId?: string) => {
+    if (!files || (files instanceof FileList ? files.length === 0 : (files as File[]).length === 0)) return;
     const connectedNodes = storageNodes.filter((n) => n.status === 'connected');
     if (connectedNodes.length === 0) {
       toast('No connected drive. Add a Google Drive first.');
       return;
     }
 
-    for (const file of Array.from(files)) {
+    const fileArray = Array.from(files);
+    for (const file of fileArray) {
+      const cleanName = sanitizeFilename(file.name);
+      const mimeType = file.type || 'application/octet-stream';
+
       try {
         // Route the file
         let nodeId: string;
@@ -378,76 +534,50 @@ export function useAppState(): AppContextValue {
         // Init upload session
         const session = await driveApi.initUpload(
           nodeId,
-          file.name,
-          file.type || 'application/octet-stream',
+          cleanName,
+          mimeType,
           file.size,
           currentFolderId !== 'root' ? currentFolderId : undefined,
         );
 
-        // Update UI immediately with session
-        setUploadSessions((prev) => [...prev.filter((s) => s.id !== session.id), session]);
+        // Register file for this session
+        fileRegistry.current.set(session.id, file);
 
-        // Set up AbortController for cancel
-        const abortController = new AbortController();
-        uploadAbortControllers.current.set(session.id, abortController);
+        // Add to UI with queued status
+        setUploadSessions((prev) => [...prev.filter((s) => s.id !== session.id), { ...session, status: 'queued', progress: 0 }]);
 
-        // Start the actual upload with progress tracking
-        try {
-          await driveApi.startUploadWithProgress(
-            session.id,
-            file,
-            file.type || 'application/octet-stream',
-            (uploaded, total) => {
-              setUploadSessions((prev) => prev.map((s) =>
-                s.id === session.id
-                  ? { ...s, progress: Math.round((uploaded / total) * 100), status: 'uploading' }
-                  : s
-              ));
-            },
-            abortController.signal,
-          );
-          setUploadSessions((prev) => prev.map((s) =>
-            s.id === session.id ? { ...s, status: 'completed', progress: 100 } : s
-          ));
-          toast(file.name + ' uploaded');
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') {
-            setUploadSessions((prev) => prev.map((s) =>
-              s.id === session.id ? { ...s, status: 'cancelled' } : s
-            ));
-            toast(file.name + ' upload cancelled');
-          } else {
-            const msg = err instanceof Error ? err.message : 'Upload failed';
-            setUploadSessions((prev) => prev.map((s) =>
-              s.id === session.id ? { ...s, status: 'failed', errorMessage: msg } : s
-            ));
-            toast(file.name + ': ' + msg);
-          }
-        } finally {
-          uploadAbortControllers.current.delete(session.id);
-        }
+        // Enqueue for processing
+        uploadQueue.current.push(session.id);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload failed';
+        const msg = err instanceof Error ? err.message : 'Failed to queue upload';
         toast(file.name + ': ' + msg);
       }
     }
 
-    void refreshUploadSessions();
-    void refreshFiles();
-  }, [storageNodes, routingMode, currentFolderId, toast, refreshUploadSessions, refreshFiles]);
+    // Start processing the queue
+    void processQueue();
+  }, [storageNodes, routingMode, currentFolderId, toast, processQueue]);
 
   const retryUpload = useCallback(async (sessionId: string) => {
+    const file = fileRegistry.current.get(sessionId);
+    if (!file) {
+      toast('Cannot retry — file data no longer available');
+      return;
+    }
+
     try {
+      // Reset the session in the backend
       await driveApi.retryUpload(sessionId);
       setUploadSessions((prev) => prev.map((s) =>
         s.id === sessionId ? { ...s, status: 'queued', progress: 0, errorMessage: null } : s
       ));
-      toast('Upload queued for retry');
-      void refreshUploadSessions();
+      // Re-enqueue for processing
+      uploadQueue.current.push(sessionId);
+      void processQueue();
     } catch {
       toast('Retry failed');
     }
-  }, [toast, refreshUploadSessions]);
+  }, [toast, processQueue]);
 
   const cancelUpload = useCallback(async (sessionId: string) => {
     const controller = uploadAbortControllers.current.get(sessionId);
@@ -455,6 +585,8 @@ export function useAppState(): AppContextValue {
       controller.abort();
       uploadAbortControllers.current.delete(sessionId);
     }
+    // Remove from queue if still queued
+    uploadQueue.current = uploadQueue.current.filter((id) => id !== sessionId);
     try {
       await driveApi.cancelUpload(sessionId);
       setUploadSessions((prev) => prev.map((s) =>
@@ -466,11 +598,14 @@ export function useAppState(): AppContextValue {
   }, []);
 
   const clearUploadSession = useCallback(async (sessionId: string) => {
+    // Remove from queue if present
+    uploadQueue.current = uploadQueue.current.filter((id) => id !== sessionId);
+    fileRegistry.current.delete(sessionId);
     try {
       await driveApi.deleteUploadSession(sessionId);
       setUploadSessions((prev) => prev.filter((s) => s.id !== sessionId));
     } catch {
-      // ignore
+      setUploadSessions((prev) => prev.filter((s) => s.id !== sessionId));
     }
   }, []);
 
@@ -533,6 +668,7 @@ export function useAppState(): AppContextValue {
     setRoutingMode,
     storageNodes,
     loadingNodes,
+    nodesError,
     storagePool,
     refreshStorageNodes,
     refreshStorageNode,
@@ -542,6 +678,9 @@ export function useAppState(): AppContextValue {
     toggleNodeEnabled,
     driveFiles,
     loadingFiles,
+    loadingMoreFiles,
+    hasMoreFiles,
+    filesError,
     currentFolderId,
     currentFolderName,
     breadcrumbs,
@@ -549,6 +688,7 @@ export function useAppState(): AppContextValue {
     navigateToRoot,
     navigateToBreadcrumb,
     refreshFiles,
+    loadMoreFiles,
     searchDriveFiles,
     renameDriveFile,
     trashDriveFile,

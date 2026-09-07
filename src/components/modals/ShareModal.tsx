@@ -87,7 +87,7 @@ export function ShareModal({ file, open, onClose }: ShareModalProps) {
     setError(null);
     setLinkAccess(access);
     try {
-      const mapped = access === 'viewer' ? 'public' : access === 'editor' ? 'public' : 'private';
+      const mapped = access === 'viewer' ? 'public' : access === 'editor' ? 'editor' : 'private';
       await shareFile(file.id, file.nodeId, mapped);
       await logActivity('permission_change', file.name, file.nodeId, file.drive, 'success');
       void loadPermissions();

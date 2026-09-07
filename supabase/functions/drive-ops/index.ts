@@ -106,13 +106,13 @@ async function getValidAccessToken(node: StorageNodeRow): Promise<string> {
   return node.access_token;
 }
 
-async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: number, pageToken?: string): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
+async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: number, pageToken?: string, orderBy?: string): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
   const token = await getValidAccessToken(node);
   const params = new URLSearchParams({
     q: query,
     pageSize: String(pageSize),
     fields: "nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,parents,thumbnailLink,webContentLink,webViewLink,starred,trashed,shared,iconLink)",
-    orderBy: "folder,name",
+    orderBy: orderBy || "folder,name",
   });
   if (pageToken) params.set("pageToken", pageToken);
 
@@ -278,22 +278,27 @@ Deno.serve(async (req: Request) => {
       const pageToken = url.searchParams.get("pageToken") || undefined;
       const trashed = url.searchParams.get("trashed") === "true";
       const starredOnly = url.searchParams.get("starred") === "true";
+      const sharedOnly = url.searchParams.get("shared") === "true";
       const typeFilter = url.searchParams.get("type");
+      const orderBy = url.searchParams.get("orderBy") || undefined;
 
       if (connectedNodes.length === 0) {
-        return new Response(JSON.stringify({ files: [], nodes: [] }), {
+        return new Response(JSON.stringify({ files: [], nodes: [], hasMore: false }), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
 
       const allFiles: ReturnType<typeof publicFile>[] = [];
+      const nodePageTokens: Record<string, string | undefined> = {};
+      let hasMore = false;
 
       for (const node of connectedNodes) {
         let query = trashed ? "trashed = true" : "trashed = false";
         if (starredOnly) query += " and starred = true";
+        if (sharedOnly) query += " and shared = true";
         if (folderId !== "root") {
           query += ` and '${folderId}' in parents`;
-        } else if (!trashed && !starredOnly) {
+        } else if (!trashed && !starredOnly && !sharedOnly) {
           query += " and 'root' in parents";
         }
 
@@ -307,18 +312,20 @@ Deno.serve(async (req: Request) => {
         }
 
         try {
-          const { files } = await fetchDriveFiles(node, query, pageSize, pageToken);
-          for (const f of files) {
+          const result = await fetchDriveFiles(node, query, pageSize, pageToken, orderBy);
+          for (const f of result.files) {
             allFiles.push(publicFile(f, node));
           }
+          if (result.nextPageToken) {
+            nodePageTokens[node.id] = result.nextPageToken;
+            hasMore = true;
+          }
         } catch (err) {
-          // Log the error but do NOT permanently mark the node as "error" —
-          // transient Drive API failures should not break upload routing.
           console.error(`File listing failed for node ${node.id}:`, err instanceof Error ? err.message : String(err));
         }
       }
 
-      return new Response(JSON.stringify({ files: allFiles }), {
+      return new Response(JSON.stringify({ files: allFiles, hasMore, pageTokens: hasMore ? nodePageTokens : undefined }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
@@ -584,29 +591,39 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/folders?nodeId=xxx — list all folders for a node (for folder picker)
+    // GET /drive-ops/folders?nodeId=xxx&all=true — list folders for a node or all connected nodes
     if (path === "/folders" && req.method === "GET") {
       const nodeId = url.searchParams.get("nodeId");
-      if (!nodeId) throw new Error("nodeId is required");
+      const listAll = url.searchParams.get("all") === "true";
+      if (!nodeId && !listAll) throw new Error("nodeId is required or all=true");
 
-      const node = await getStorageNode(supabase, nodeId);
-      const token = await getValidAccessToken(node);
+      const nodesToList = listAll ? nodes.filter((n) => n.status === "connected") : [await getStorageNode(supabase, nodeId!)];
+      const allFolders: { id: string; name: string; parents?: string[]; nodeId: string; driveName: string }[] = [];
 
-      const params = new URLSearchParams({
-        q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-        pageSize: "200",
-        fields: "files(id,name,parents)",
-        orderBy: "name",
-      });
+      for (const n of nodesToList) {
+        try {
+          const token = await getValidAccessToken(n);
+          const params = new URLSearchParams({
+            q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+            pageSize: "200",
+            fields: "files(id,name,parents)",
+            orderBy: "name",
+          });
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const f of data.files || []) {
+              allFolders.push({ ...f, nodeId: n.id, driveName: n.display_name || n.email || n.id });
+            }
+          }
+        } catch (err) {
+          console.error(`Folders list failed for node ${n.id}:`, err instanceof Error ? err.message : String(err));
+        }
+      }
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) throw new Error(`Folders list failed (${res.status})`);
-      const data = await res.json();
-
-      return new Response(JSON.stringify({ folders: data.files || [] }), {
+      return new Response(JSON.stringify({ folders: allFolders }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
@@ -700,39 +717,140 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/copy — copy file
+    // POST /drive-ops/copy — copy file (optionally to a different drive/folder)
     if (path === "/copy" && req.method === "POST") {
       const body = await req.json();
-      const { fileId, nodeId } = body;
+      const { fileId, nodeId, destNodeId, destFolderId } = body;
       if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
+      const copyBody: Record<string, unknown> = {};
+      if (destFolderId && destFolderId !== "root") {
+        copyBody.parents = [destFolderId];
+      }
+
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(copyBody),
       });
 
       if (!res.ok) throw new Error(`Copy failed (${res.status})`);
       const copied = await res.json();
+
+      // If cross-drive copy requested, transfer to destination drive
+      if (destNodeId && destNodeId !== nodeId) {
+        const destNode = await getStorageNode(supabase, destNodeId);
+        const destToken = await getValidAccessToken(destNode);
+        // Create a copy on the destination drive using the file's content
+        const sourceRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!sourceRes.ok) throw new Error(`Cross-drive copy: source fetch failed (${sourceRes.status})`);
+        const fileBlob = await sourceRes.blob();
+        const uploadBody: Record<string, unknown> = { name: copied.name };
+        if (destFolderId && destFolderId !== "root") {
+          uploadBody.parents = [destFolderId];
+        } else {
+          uploadBody.parents = ["root"];
+        }
+        const uploadRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${destToken}`,
+            "Content-Type": copied.mimeType || "application/octet-stream",
+          },
+          body: JSON.stringify(uploadBody),
+        });
+        // Upload content via resumable or simple upload
+        const uploadData = await uploadRes.json();
+        const contentRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${uploadData.id}?uploadType=media`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${destToken}`,
+            "Content-Type": copied.mimeType || "application/octet-stream",
+          },
+          body: fileBlob,
+        });
+        if (!contentRes.ok) throw new Error(`Cross-drive copy: upload failed (${contentRes.status})`);
+        const finalFile = await contentRes.json();
+        // Delete the same-drive copy we made first
+        await fetch(`https://www.googleapis.com/drive/v3/files/${copied.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return new Response(JSON.stringify(publicFile(finalFile, destNode)), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
 
       return new Response(JSON.stringify(publicFile(copied, node)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/move — move file to a different parent folder
+    // POST /drive-ops/move — move file to a different parent folder (optionally cross-drive)
     if (path === "/move" && req.method === "POST") {
       const body = await req.json();
-      const { fileId, nodeId, newParentId } = body;
+      const { fileId, nodeId, newParentId, destNodeId } = body;
       if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      // Get current parents
+      // Cross-drive move: copy to dest drive then delete original
+      if (destNodeId && destNodeId !== nodeId) {
+        const destNode = await getStorageNode(supabase, destNodeId);
+        const destToken = await getValidAccessToken(destNode);
+        const file = await getDriveFile(node, fileId);
+
+        // Fetch file content
+        const sourceRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!sourceRes.ok) throw new Error(`Cross-drive move: source fetch failed (${sourceRes.status})`);
+        const fileBlob = await sourceRes.blob();
+
+        // Upload to destination
+        const uploadBody: Record<string, unknown> = { name: file.name };
+        if (newParentId && newParentId !== "root") {
+          uploadBody.parents = [newParentId];
+        } else {
+          uploadBody.parents = ["root"];
+        }
+        const uploadRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${destToken}`,
+            "Content-Type": file.mimeType || "application/octet-stream",
+          },
+          body: JSON.stringify(uploadBody),
+        });
+        const uploadData = await uploadRes.json();
+        const contentRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${uploadData.id}?uploadType=media`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${destToken}`,
+            "Content-Type": file.mimeType || "application/octet-stream",
+          },
+          body: fileBlob,
+        });
+        if (!contentRes.ok) throw new Error(`Cross-drive move: upload failed (${contentRes.status})`);
+
+        // Delete original
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        return new Response(JSON.stringify({ success: true, crossDrive: true }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      // Same-drive move: just change parents
       const file = await getDriveFile(node, fileId);
       const currentParents = file.parents || [];
 
@@ -802,6 +920,8 @@ Deno.serve(async (req: Request) => {
       let permission;
       if (access === "public") {
         permission = { type: "anyone", role: "reader" };
+      } else if (access === "editor") {
+        permission = { type: "anyone", role: "writer" };
       } else if (access === "unlisted") {
         permission = { type: "anyone", role: "reader", allowFileDiscovery: false };
       } else {

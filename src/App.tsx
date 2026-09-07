@@ -15,14 +15,17 @@ import { SetupScreen } from '@/components/SetupScreen';
 import { UploadModal } from '@/components/modals/UploadModal';
 import { PreviewModal } from '@/components/modals/PreviewModal';
 import { ConvertModal } from '@/components/modals/ConvertModal';
+import { FloatingUploadQueue } from '@/components/FloatingUploadQueue';
 import type { DashboardFile, ExplorerFile, DriveFileItem } from '@/types';
 
 function AppContent() {
-  const { currentView, authLoading, authed, authError, passcodeInitialized, login, setupAdminPasscode } = useApp();
+  const { currentView, authLoading, authed, authError, passcodeInitialized, login, setupAdminPasscode, uploadFiles, toast } = useApp();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<DriveFileItem | DashboardFile | ExplorerFile | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewList, setPreviewList] = useState<DriveFileItem[]>([]);
+  const [globalDragOver, setGlobalDragOver] = useState(false);
 
   useEffect(() => {
     const closeContext = () => { /* context menu closes itself */ };
@@ -30,7 +33,43 @@ function AppContent() {
     return () => document.removeEventListener('click', closeContext);
   }, []);
 
+  // Global drag & drop — accept file drops anywhere on the page
+  useEffect(() => {
+    if (!authed) return;
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) {
+        e.preventDefault();
+        setGlobalDragOver(true);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (e.relatedTarget === null) setGlobalDragOver(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setGlobalDragOver(false);
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        void uploadFiles(e.dataTransfer.files);
+        toast(e.dataTransfer.files.length + ' file' + (e.dataTransfer.files.length > 1 ? 's' : '') + ' added to upload queue');
+      }
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [authed, uploadFiles, toast]);
+
   const openPreview = (file: DriveFileItem | DashboardFile | ExplorerFile) => {
+    setPreviewFile(file);
+    setPreviewOpen(true);
+  };
+
+  const openPreviewWithList = (file: DriveFileItem | DashboardFile | ExplorerFile, list?: DriveFileItem[]) => {
+    setPreviewList(list || []);
     setPreviewFile(file);
     setPreviewOpen(true);
   };
@@ -68,11 +107,15 @@ function AppContent() {
     return <LoginScreen onLogin={login} />;
   }
 
-  const showExplorer = currentView === 'files';
   const showDashboard = currentView === 'dashboard';
   const showSettings = currentView === 'settings';
   const showApi = currentView === 'api';
-  const showSimple = !showExplorer && !showDashboard && !showSettings && !showApi;
+  // Views that use the full FileExplorer with folder navigation
+  const explorerViews = ['files', 'shared', 'shared-folder', 'folders'];
+  const showExplorer = explorerViews.includes(currentView);
+  // Views that use the simple table view
+  const simpleViews = ['recent', 'starred', 'photos', 'videos', 'trash', 'drives'];
+  const showSimple = simpleViews.includes(currentView);
 
   return (
     <>
@@ -82,15 +125,28 @@ function AppContent() {
           <MobileHead />
           <TopBar onOpenUpload={() => setUploadOpen(true)} />
           {showDashboard && <DashboardView onOpenUpload={() => setUploadOpen(true)} onPreview={openPreview} />}
-          {showExplorer && <FileExplorer onPreview={openPreview} />}
+          {showExplorer && <FileExplorer onPreview={openPreviewWithList} />}
           {showSettings && <SettingsView />}
           {showApi && <ApiView />}
-          {showSimple && <SimpleFileView onPreview={openPreview} />}
+          {showSimple && <SimpleFileView onPreview={openPreviewWithList} />}
         </main>
       </div>
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
-      <PreviewModal open={previewOpen} onClose={() => setPreviewOpen(false)} file={previewFile} />
+      <PreviewModal open={previewOpen} onClose={() => setPreviewOpen(false)} file={previewFile} fileList={previewList} />
       <ConvertModal open={convertOpen} onClose={() => setConvertOpen(false)} />
+
+      {/* Global drag & drop overlay */}
+      {globalDragOver && (
+        <div className="global-drop-overlay">
+          <div className="global-drop-inner">
+            <div className="global-drop-icon">{'\u2191'}</div>
+            <strong>Drop files to upload</strong>
+            <span>Files will be routed to the best available drive</span>
+          </div>
+        </div>
+      )}
+
+      <FloatingUploadQueue />
       <Toast />
     </>
   );

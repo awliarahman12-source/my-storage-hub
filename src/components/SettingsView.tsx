@@ -66,6 +66,7 @@ export function SettingsView() {
   // Change passcode state
   const [showChangePass, setShowChangePass] = useState(false);
   const [currentPass, setCurrentPass] = useState('');
+  const [birthDate, setBirthDate] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [passChanging, setPassChanging] = useState(false);
@@ -293,6 +294,14 @@ export function SettingsView() {
                     onChange={(e) => { setCurrentPass(e.target.value); setPassError(null); }}
                   />
                   <input
+                    type="date"
+                    className="setting-input"
+                    placeholder="Birth date (DD/MM/YYYY)"
+                    value={birthDate}
+                    onChange={(e) => { setBirthDate(e.target.value); setPassError(null); }}
+                  />
+                  <small style={{ fontSize: 11, color: '#8a94a5', marginTop: -4 }}>Enter your birth date for verification.</small>
+                  <input
                     type="password"
                     className="setting-input"
                     placeholder="New passcode (min. 6 characters)"
@@ -312,16 +321,16 @@ export function SettingsView() {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       className="btn primary"
-                      disabled={passChanging || !currentPass || !newPass || !confirmPass}
+                      disabled={passChanging || !currentPass || !birthDate || !newPass || !confirmPass}
                       onClick={async () => {
                         if (newPass.length < 6) { setPassError('Passcode baru minimal 6 karakter.'); return; }
                         if (newPass !== confirmPass) { setPassError('Passcode baru tidak cocok.'); return; }
                         setPassChanging(true); setPassError(null);
                         try {
-                          await changePasscode(currentPass, newPass, confirmPass);
+                          await changePasscode(currentPass, newPass, confirmPass, birthDate);
                           toast('Passcode berhasil diubah');
                           setShowChangePass(false);
-                          setCurrentPass(''); setNewPass(''); setConfirmPass('');
+                          setCurrentPass(''); setBirthDate(''); setNewPass(''); setConfirmPass('');
                         } catch (e) {
                           setPassError(e instanceof Error ? e.message : 'Gagal mengubah passcode');
                         }
@@ -330,7 +339,7 @@ export function SettingsView() {
                     >
                       {passChanging ? 'Saving...' : 'Save'}
                     </button>
-                    <button className="btn" onClick={() => { setShowChangePass(false); setCurrentPass(''); setNewPass(''); setConfirmPass(''); setPassError(null); }}>Cancel</button>
+                    <button className="btn" onClick={() => { setShowChangePass(false); setCurrentPass(''); setBirthDate(''); setNewPass(''); setConfirmPass(''); setPassError(null); }}>Cancel</button>
                   </div>
                 </div>
               )}
@@ -460,7 +469,7 @@ export function SettingsView() {
               </div>
             ) : (
               <div style={{ borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 100px 80px', padding: '8px 12px', fontSize: 10, fontWeight: 700, color: '#7b8495', borderBottom: '2px solid var(--border)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <div className="device-head" style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 100px 80px', padding: '8px 12px', fontSize: 10, fontWeight: 700, color: '#7b8495', borderBottom: '2px solid var(--border)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   <span>Device</span>
                   <span>Browser</span>
                   <span>OS</span>
@@ -470,7 +479,7 @@ export function SettingsView() {
                 {devices.map((d) => {
                   const isCurrent = d.device_id === currentDeviceId;
                   return (
-                    <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 100px 80px', padding: '10px 12px', fontSize: 11, borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                    <div key={d.id} className="device-row" style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px 100px 80px', padding: '10px 12px', fontSize: 11, borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
                       <div>
                         <strong>{d.device_name || 'Unknown device'}</strong>
                         {isCurrent && <span style={{ fontSize: 9, color: '#16a34a', marginLeft: 6, fontWeight: 600 }}>(This device)</span>}

@@ -27,7 +27,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const [uploading, setUploading] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [duplicatePrompt, setDuplicatePrompt] = useState<{ filename: string; drives: string } | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<FileList | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<FileList | File[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasUsableDrives = storageNodes.filter((n) => n.status === 'connected').length > 0;

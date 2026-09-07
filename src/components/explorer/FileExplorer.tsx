@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { V3Icon } from '@/components/FileIcon';
-import { getDownloadUrl, fetchFolders, logActivity } from '@/utils/driveApi';
+import { getDownloadUrl, fetchFolders, fetchAllFolders, logActivity } from '@/utils/driveApi';
+import type { FolderEntry } from '@/utils/driveApi';
 import { ShareModal } from '@/components/modals/ShareModal';
 import type { DriveFileItem } from '@/types';
 
@@ -18,13 +19,16 @@ const SORT_LABELS: Record<SortMode, string> = {
 };
 
 interface FileExplorerProps {
-  onPreview: (file: DriveFileItem) => void;
+  onPreview: (file: DriveFileItem, list?: DriveFileItem[]) => void;
 }
 
 export function FileExplorer({ onPreview }: FileExplorerProps) {
   const {
     driveFiles,
     loadingFiles,
+    loadingMoreFiles,
+    hasMoreFiles,
+    filesError,
     storageNodes,
     currentFolderId,
     currentFolderName,
@@ -33,6 +37,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     navigateToRoot,
     navigateToBreadcrumb,
     refreshFiles,
+    loadMoreFiles,
     refreshStorageNodes,
     renameDriveFile,
     trashDriveFile,
@@ -58,9 +63,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<DriveFileItem[] | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [fileError, setFileError] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [folderPicker, setFolderPicker] = useState<{ file: DriveFileItem; mode: 'move' | 'copy' } | null>(null);
-  const [folderList, setFolderList] = useState<{ id: string; name: string }[]>([]);
+  const [folderList, setFolderList] = useState<FolderEntry[]>([]);
+  const [selectedDestNode, setSelectedDestNode] = useState<string>('');
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem | null>(null);
   const [shareFile, setShareFile] = useState<DriveFileItem | null>(null);
@@ -80,13 +86,24 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     }
   });
 
-  // Track file loading errors
+  // Infinite scroll observer
+  const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!loadingFiles && driveFiles.length === 0 && hasDrives && !searchQuery) {
-      // Could be empty folder or error — we track error state separately
-      setFileError(false);
-    }
-  }, [loadingFiles, driveFiles.length, hasDrives, searchQuery]);
+    if (searchResults !== null) return;
+    if (!hasMoreFiles || loadingMoreFiles) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          void loadMoreFiles();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreFiles, loadingMoreFiles, loadMoreFiles, searchResults]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -141,7 +158,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       setSearchResults(null);
       setSearchQuery('');
     } else {
-      onPreview(file);
+      onPreview(file, sorted);
     }
   };
 
@@ -180,25 +197,36 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   };
 
   const handleRename = async (file: DriveFileItem) => {
-    const n = prompt('Rename:', file.name);
-    if (n?.trim()) {
-      try {
-        await renameDriveFile(file.id, file.nodeId, n.trim());
-        await logActivity('rename', file.name + ' → ' + n.trim(), file.nodeId, file.drive, 'success');
-      } catch {
-        toast('Rename failed');
-        await logActivity('rename', file.name, file.nodeId, file.drive, 'failed');
+    const lastDot = file.name.lastIndexOf('.');
+    const hasExt = lastDot > 0 && lastDot < file.name.length - 1;
+    const baseName = hasExt ? file.name.substring(0, lastDot) : file.name;
+    const ext = hasExt ? file.name.substring(lastDot) : '';
+    const n = prompt('Rename file:', baseName);
+    if (!n?.trim()) return;
+    let newName = n.trim();
+    if (hasExt) {
+      const changeExt = confirm('Keep extension "' + ext + '"?\n\nOK = Keep "' + n.trim() + ext + '"\nCancel = Use "' + n.trim() + '" (changes extension)\n\nWarning: Changing the extension does NOT convert the file format.');
+      if (changeExt) {
+        newName = n.trim() + ext;
+      } else {
+        newName = n.trim();
       }
+    }
+    try {
+      await renameDriveFile(file.id, file.nodeId, newName);
+      await logActivity('rename', file.name + ' → ' + newName, file.nodeId, file.drive, 'success');
+    } catch {
+      toast('Rename failed');
+      await logActivity('rename', file.name, file.nodeId, file.drive, 'failed');
     }
   };
 
   const handleMoveOrCopy = async (file: DriveFileItem, mode: 'move' | 'copy') => {
     setFolderPicker({ file, mode });
     setLoadingFolders(true);
+    setSelectedDestNode(file.nodeId);
     try {
-      const firstNode = storageNodes.find((n) => n.status === 'connected');
-      if (!firstNode) { toast('No connected drive'); return; }
-      const folders = await fetchFolders(file.nodeId);
+      const folders = await fetchAllFolders();
       setFolderList(folders.filter((f) => f.id !== file.id));
     } catch {
       toast('Failed to load folders');
@@ -208,15 +236,16 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     }
   };
 
-  const handleFolderPick = async (destFolderId: string) => {
+  const handleFolderPick = async (destFolderId: string, destNodeId?: string) => {
     if (!folderPicker) return;
+    const targetNodeId = destNodeId || selectedDestNode || folderPicker.file.nodeId;
     try {
       if (folderPicker.mode === 'move') {
-        await moveDriveFile(folderPicker.file.id, folderPicker.file.nodeId, destFolderId);
+        await moveDriveFile(folderPicker.file.id, folderPicker.file.nodeId, destFolderId, targetNodeId !== folderPicker.file.nodeId ? targetNodeId : undefined);
         await logActivity('move', folderPicker.file.name, folderPicker.file.nodeId, folderPicker.file.drive, 'success');
         toast('File moved');
       } else {
-        await copyDriveFile(folderPicker.file.id, folderPicker.file.nodeId);
+        await copyDriveFile(folderPicker.file.id, folderPicker.file.nodeId, targetNodeId !== folderPicker.file.nodeId ? targetNodeId : undefined, destFolderId);
         await logActivity('copy', folderPicker.file.name, folderPicker.file.nodeId, folderPicker.file.drive, 'success');
         toast('File copied');
       }
@@ -304,18 +333,18 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     try {
       const results = await searchDriveFiles(query);
       setSearchResults(results);
+      setSearchError(false);
     } catch {
-      setFileError(true);
+      setSearchError(true);
+      setSearchResults([]);
     }
   };
 
   const handleRefresh = async () => {
-    setFileError(false);
     try {
       await Promise.all([refreshFiles(), refreshStorageNodes()]);
       toast('Refreshed');
     } catch {
-      setFileError(true);
       toast('Refresh failed');
     }
   };
@@ -343,6 +372,20 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
 
       <div className="explorer-toolbar">
         <div className="group">
+          {sorted.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: '#7b8495', padding: '0 8px' }}>
+              <input
+                type="checkbox"
+                checked={selected.size === sorted.length}
+                onChange={() => {
+                  if (selected.size === sorted.length) setSelected(new Set());
+                  else setSelected(new Set(sorted.map((f) => f.id)));
+                }}
+                style={{ cursor: 'pointer' }}
+              />
+              {selected.size > 0 && selected.size < sorted.length ? 'Partial' : selected.size === sorted.length ? 'All' : 'None'}
+            </label>
+          )}
           <button className="xbtn primary" onClick={handleNewFolder}>{'\uFF0B'} New</button>
           <button className="xbtn" onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }} disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</button>
           <button className="xbtn" onClick={handleRefresh}>{'\u21BB'} Refresh</button>
@@ -354,7 +397,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <button className="xbtn" onClick={() => { const f = driveFiles.find(x => selected.has(x.id)); if (f) handleMoveOrCopy(f, 'move'); }}>Move</button>
             <button className="xbtn" onClick={() => { const f = driveFiles.find(x => selected.has(x.id)); if (f) handleMoveOrCopy(f, 'copy'); }}>Copy</button>
             <button className="xbtn" onClick={() => { const f = driveFiles.find(x => selected.has(x.id)); if (f) handleShare(f); }}>Share</button>
+            <button className="xbtn" onClick={() => { selected.forEach(id => { const f = driveFiles.find(x => x.id === id); if (f) handleStar(f); }); }}>Star</button>
             <button className="xbtn danger" onClick={handleTrashSelected}>Delete</button>
+            <button className="xbtn" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         )}
         <div style={{ flex: 1 }} />
@@ -403,7 +448,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
           Loading files from Google Drive...
         </div>
-      ) : fileError ? (
+      ) : filesError ? (
         <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>{'\u26A0'}</div>
           <strong>Storage connection unavailable</strong>
@@ -415,7 +460,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       ) : sorted.length === 0 ? (
         <div className="upload-drop" style={{ display: 'block' }}>
           {searchQuery ? (
-            <>No files found for "{searchQuery}"</>
+            <>
+              {searchError ? 'Search failed. Please try again.' : 'No files found for "' + searchQuery + '"'}
+            </>
           ) : !hasDrives ? (
             <>
               No Google Drive connected.<br />
@@ -453,7 +500,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                   <V3Icon file={f} />
                 )}
               </div>
-              <div className="file-name">{f.name}</div>
+              <div className="file-name">{f.name}{f.starred ? <span style={{ color: '#f59e0b' }}> \u2605</span> : null}</div>
               <div className="file-meta">{f.isFolder ? 'Folder' : f.sizeLabel} · {f.drive}</div>
             </div>
           ))}
@@ -461,7 +508,18 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       ) : (
         <div className="file-list">
           <div className="file-row header">
-            <div></div><div>Name</div><div>Type</div><div>Size</div><div>Modified</div><div>Storage</div><div></div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <input
+                type="checkbox"
+                checked={selected.size === sorted.length && sorted.length > 0}
+                onChange={() => {
+                  if (selected.size === sorted.length) setSelected(new Set());
+                  else setSelected(new Set(sorted.map((f) => f.id)));
+                }}
+                style={{ cursor: 'pointer' }}
+              />
+            </div>
+            <div>Name</div><div>Type</div><div>Size</div><div>Modified</div><div>Storage</div><div></div>
           </div>
           {sorted.map((f) => (
             <div
@@ -471,7 +529,13 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               onDoubleClick={() => open(f)}
               onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
             >
-              <div className="file-icon">
+              <div className="file-icon" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(f.id)}
+                  onChange={() => { const ns = new Set(selected); ns.has(f.id) ? ns.delete(f.id) : ns.add(f.id); setSelected(ns); }}
+                  style={{ cursor: 'pointer' }}
+                />
                 {f.thumbnail && f.type === 'img' ? (
                   <img src={f.thumbnail} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4 }} />
                 ) : (
@@ -483,12 +547,25 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               <div className="muted">{f.isFolder ? '—' : f.sizeLabel}</div>
               <div className="muted">{f.modified}</div>
               <div className="muted">{f.drive}</div>
-              <button
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', fontSize: 16 }}
-                onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, file: f }); }}
-              >{'\u22EE'}</button>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '\u2605' : '\u2606'}</button>
+                <button
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', fontSize: 16 }}
+                  onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, file: f }); }}
+                >{'\u22EE'}</button>
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Infinite scroll sentinel + loading/end-of-list indicators */}
+      {searchResults === null && sorted.length > 0 && (
+        <div ref={sentinelRef} style={{ padding: '12px', textAlign: 'center' }}>
+          {loadingMoreFiles && <span className="muted" style={{ fontSize: 13 }}>Loading more files...</span>}
+          {!loadingMoreFiles && !hasMoreFiles && !loadingFiles && (
+            <span className="muted" style={{ fontSize: 12 }}>End of list</span>
+          )}
         </div>
       )}
 
@@ -501,24 +578,52 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         {detailsFile && (
           <>
             <div className="detail-big"><V3Icon file={detailsFile} /></div>
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <strong style={{ fontSize: 14, wordBreak: 'break-word' }}>{detailsFile.name}</strong>
+            </div>
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, justifyContent: 'center' }}>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { open(detailsFile); }}>Open</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>Download</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleShare(detailsFile)}>Share</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>Rename</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleMoveOrCopy(detailsFile, 'move'); }}>Move</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleMoveOrCopy(detailsFile, 'copy'); }}>Copy</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleStar(detailsFile)}>{detailsFile.starred ? 'Unstar' : 'Star'}</button>
+              <button className="xbtn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); setTrashConfirm(detailsFile); }}>Delete</button>
+            </div>
+            {/* File info section */}
+            <div style={{ fontSize: 11, color: '#9da7b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>File</div>
             {([
               ['Name', detailsFile.name],
-              ['Type', detailsFile.mimeType],
+              ['Type', detailsFile.isFolder ? 'Folder' : detailsFile.type.toUpperCase()],
+              ['Extension', detailsFile.name.includes('.') ? '.' + detailsFile.name.split('.').pop() : 'None'],
+              ['MIME', detailsFile.mimeType],
               ['Size', detailsFile.isFolder ? '—' : detailsFile.sizeLabel],
               ['Created', formatDate(detailsFile.createdRaw)],
               ['Modified', detailsFile.modified],
-              ['Storage Node', detailsFile.drive],
-              ['Google Account', detailsFile.driveEmail],
-              ['Google File ID', detailsFile.id],
-              ['Parent Folder', detailsFile.parentGoogleId || 'root'],
               ['Starred', detailsFile.starred ? 'Yes' : 'No'],
-              ['Trashed', detailsFile.trashed ? 'Yes' : 'No'],
               ['Shared', detailsFile.shared ? 'Yes' : 'No'],
-              ['Web View Link', detailsFile.webViewLink || 'Unavailable'],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} className="detail-item">
                 <span>{k}</span>
                 <strong style={{ wordBreak: 'break-all' }}>{v}</strong>
+              </div>
+            ))}
+            {/* Storage info section */}
+            <div style={{ fontSize: 11, color: '#9da7b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, margin: '16px 0 6px' }}>Storage</div>
+            {([
+              ['Provider', 'Google Drive'],
+              ['Drive / Account', detailsFile.drive],
+              ['Account Email', detailsFile.driveEmail],
+              ['Storage Node ID', detailsFile.nodeId],
+              ['File ID', detailsFile.id],
+              ['Parent Folder', detailsFile.parentGoogleId || 'root'],
+              ['Web View Link', detailsFile.webViewLink || 'Unavailable'],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} className="detail-item">
+                <span>{k}</span>
+                <strong style={{ wordBreak: 'break-all', fontSize: 11 }}>{v}</strong>
               </div>
             ))}
           </>
@@ -547,40 +652,56 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       {/* Folder Picker Modal */}
       {folderPicker && (
         <div className="modal-wrap open" onClick={() => setFolderPicker(null)}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
               <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
             </div>
-            <div style={{ padding: '16px 20px', maxHeight: 360, overflowY: 'auto' }}>
-              <div className="muted" style={{ marginBottom: 8 }}>
+            <div style={{ padding: '16px 20px' }}>
+              <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
                 {folderPicker.file.name} → {folderPicker.mode === 'move' ? 'move' : 'copy'} to:
               </div>
-              {loadingFolders ? (
-                <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20 }}>Loading folders...</div>
-              ) : folderList.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20 }}>No folders available. Create a folder first.</div>
-              ) : (
-                <>
-                  <button
-                    className="xbtn"
-                    style={{ width: '100%', textAlign: 'left', marginBottom: 4, padding: '8px 12px' }}
-                    onClick={() => handleFolderPick('root')}
-                  >
-                    {'\u25B9'} My Storage (root)
-                  </button>
-                  {folderList.map((f) => (
+              {/* Drive selector */}
+              <select
+                className="setting-input"
+                style={{ width: '100%', padding: '8px 12px', marginBottom: 12 }}
+                value={selectedDestNode}
+                onChange={(e) => setSelectedDestNode(e.target.value)}
+              >
+                {storageNodes.filter((n) => n.status === 'connected').map((n) => (
+                  <option key={n.id} value={n.id}>{n.displayName || n.email || n.id}</option>
+                ))}
+              </select>
+              <div style={{ maxHeight: 280, overflowY: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
+                {loadingFolders ? (
+                  <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20 }}>Loading folders...</div>
+                ) : (
+                  <>
                     <button
-                      key={f.id}
                       className="xbtn"
-                      style={{ width: '100%', textAlign: 'left', marginBottom: 4, padding: '8px 12px' }}
-                      onClick={() => handleFolderPick(f.id)}
+                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                      onClick={() => handleFolderPick('root', selectedDestNode)}
                     >
-                      {'\u25B8'} {f.name}
+                      {'\u25B9'} My Storage (root)
                     </button>
-                  ))}
-                </>
-              )}
+                    {folderList
+                      .filter((f) => f.nodeId === selectedDestNode)
+                      .map((f) => (
+                        <button
+                          key={f.id}
+                          className="xbtn"
+                          style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                          onClick={() => handleFolderPick(f.id, f.nodeId)}
+                        >
+                          {'\u25B8'} {f.name}
+                        </button>
+                      ))}
+                    {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
+                      <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20, fontSize: 12 }}>No folders in this drive. Using root.</div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

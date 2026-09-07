@@ -40,6 +40,7 @@ export interface AppContextValue {
   setRoutingMode: (m: RoutingMode) => void;
   storageNodes: StorageNode[];
   loadingNodes: boolean;
+  nodesError: boolean;
   storagePool: StoragePoolSummary | null;
   refreshStorageNodes: () => Promise<void>;
   refreshStorageNode: (nodeId: string) => Promise<void>;
@@ -51,6 +52,9 @@ export interface AppContextValue {
   // Drive Files
   driveFiles: DriveFileItem[];
   loadingFiles: boolean;
+  loadingMoreFiles: boolean;
+  hasMoreFiles: boolean;
+  filesError: boolean;
   currentFolderId: string;
   currentFolderName: string;
   breadcrumbs: BreadcrumbItem[];
@@ -58,6 +62,7 @@ export interface AppContextValue {
   navigateToRoot: () => void;
   navigateToBreadcrumb: (index: number) => void;
   refreshFiles: () => Promise<void>;
+  loadMoreFiles: () => Promise<void>;
   searchDriveFiles: (query: string) => Promise<DriveFileItem[]>;
 
   // File Operations
@@ -65,8 +70,8 @@ export interface AppContextValue {
   trashDriveFile: (fileId: string, nodeId: string) => Promise<void>;
   untrashDriveFile: (fileId: string, nodeId: string) => Promise<void>;
   starDriveFile: (fileId: string, nodeId: string, starred: boolean) => Promise<void>;
-  copyDriveFile: (fileId: string, nodeId: string) => Promise<void>;
-  moveDriveFile: (fileId: string, nodeId: string, newParentId: string) => Promise<void>;
+  copyDriveFile: (fileId: string, nodeId: string, destNodeId?: string, destFolderId?: string) => Promise<void>;
+  moveDriveFile: (fileId: string, nodeId: string, newParentId: string, destNodeId?: string) => Promise<void>;
   deleteDriveFile: (fileId: string, nodeId: string) => Promise<void>;
   createDriveFolder: (nodeId: string, name: string, parentId?: string) => Promise<void>;
   shareDriveFile: (fileId: string, nodeId: string, access: string) => Promise<void>;
@@ -74,7 +79,7 @@ export interface AppContextValue {
   // Upload Queue
   uploadSessions: UploadSession[];
   refreshUploadSessions: () => Promise<void>;
-  uploadFiles: (files: FileList, targetNodeId?: string) => Promise<void>;
+  uploadFiles: (files: FileList | File[], targetNodeId?: string) => Promise<void>;
   retryUpload: (sessionId: string) => Promise<void>;
   cancelUpload: (sessionId: string) => Promise<void>;
   clearUploadSession: (sessionId: string) => Promise<void>;

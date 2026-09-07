@@ -167,12 +167,12 @@ export async function revokeSession(sessionId: string): Promise<void> {
   if (!res.ok) throw new Error(`Revoke failed (${res.status})`);
 }
 
-export async function changePasscode(currentPasscode: string, newPasscode: string, confirmPasscode: string): Promise<void> {
+export async function changePasscode(currentPasscode: string, newPasscode: string, confirmPasscode: string, birthDate: string): Promise<void> {
   const res = await fetch(`${passcodeUrl()}/change-passcode`, {
     method: 'POST',
     headers: getHeaders(),
     credentials: 'omit',
-    body: JSON.stringify({ currentPasscode, newPasscode, confirmPasscode }),
+    body: JSON.stringify({ currentPasscode, newPasscode, confirmPasscode, birthDate }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -244,14 +244,20 @@ export async function fetchFiles(opts?: {
   typeFilter?: string;
   starredOnly?: boolean;
   trashed?: boolean;
+  sharedOnly?: boolean;
   pageSize?: number;
-}): Promise<DriveFileItem[]> {
+  pageToken?: string;
+  orderBy?: string;
+}): Promise<{ files: DriveFileItem[]; hasMore: boolean; pageTokens?: Record<string, string> }> {
   const params = new URLSearchParams();
   if (opts?.folderId) params.set('folderId', opts.folderId);
   if (opts?.typeFilter) params.set('type', opts.typeFilter);
   if (opts?.starredOnly) params.set('starred', 'true');
   if (opts?.trashed) params.set('trashed', 'true');
+  if (opts?.sharedOnly) params.set('shared', 'true');
   if (opts?.pageSize) params.set('pageSize', String(opts.pageSize));
+  if (opts?.pageToken) params.set('pageToken', opts.pageToken);
+  if (opts?.orderBy) params.set('orderBy', opts.orderBy);
 
   const res = await fetch(`${driveOpsUrl()}/files?${params}`, {
     headers: getHeaders(),
@@ -259,7 +265,11 @@ export async function fetchFiles(opts?: {
   });
   if (!res.ok) throw new Error(`Failed to fetch files (${res.status})`);
   const data = await res.json();
-  return (data.files || []) as DriveFileItem[];
+  return {
+    files: (data.files || []) as DriveFileItem[],
+    hasMore: data.hasMore === true,
+    pageTokens: data.pageTokens as Record<string, string> | undefined,
+  };
 }
 
 export async function searchFiles(query: string): Promise<DriveFileItem[]> {
@@ -318,24 +328,24 @@ export async function starFile(fileId: string, nodeId: string, starred: boolean)
   if (!res.ok) throw new Error(`Star failed (${res.status})`);
 }
 
-export async function copyFile(fileId: string, nodeId: string): Promise<DriveFileItem> {
+export async function copyFile(fileId: string, nodeId: string, destNodeId?: string, destFolderId?: string): Promise<DriveFileItem> {
   const res = await fetch(`${driveOpsUrl()}/copy`, {
     method: 'POST',
     headers: getHeaders(),
     credentials: 'omit',
-    body: JSON.stringify({ fileId, nodeId }),
+    body: JSON.stringify({ fileId, nodeId, destNodeId, destFolderId }),
   });
   if (!res.ok) throw new Error(`Copy failed (${res.status})`);
   const data = await res.json();
   return data as DriveFileItem;
 }
 
-export async function moveFile(fileId: string, nodeId: string, newParentId: string): Promise<void> {
+export async function moveFile(fileId: string, nodeId: string, newParentId: string, destNodeId?: string): Promise<void> {
   const res = await fetch(`${driveOpsUrl()}/move`, {
     method: 'POST',
     headers: getHeaders(),
     credentials: 'omit',
-    body: JSON.stringify({ fileId, nodeId, newParentId }),
+    body: JSON.stringify({ fileId, nodeId, newParentId, destNodeId }),
   });
   if (!res.ok) throw new Error(`Move failed (${res.status})`);
 }
@@ -404,6 +414,26 @@ export async function fetchFolders(nodeId: string): Promise<{ id: string; name: 
   if (!res.ok) throw new Error(`Failed to fetch folders (${res.status})`);
   const data = await res.json();
   return (data.folders || []) as { id: string; name: string; parents?: string[] }[];
+}
+
+export interface FolderEntry {
+  id: string;
+  name: string;
+  parents?: string[];
+  nodeId: string;
+  driveName: string;
+}
+
+export async function fetchAllFolders(): Promise<FolderEntry[]> {
+  const params = new URLSearchParams();
+  params.set('all', 'true');
+  const res = await fetch(`${driveOpsUrl()}/folders?${params}`, {
+    headers: getHeaders(),
+    credentials: 'omit',
+  });
+  if (!res.ok) throw new Error(`Failed to fetch folders (${res.status})`);
+  const data = await res.json();
+  return (data.folders || []) as FolderEntry[];
 }
 
 // ============ Text Preview ============

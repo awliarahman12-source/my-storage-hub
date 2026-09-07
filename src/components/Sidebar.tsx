@@ -72,7 +72,7 @@ export function Sidebar({ onOpenConvert }: SidebarProps) {
             {group.section === 'System' && (
               <button onClick={onOpenConvert}>
                 <span>{'\u25B4'}</span>
-                <span>PDF Converter</span>
+                <span>Tools PDF</span>
               </button>
             )}
           </div>
