@@ -26,14 +26,24 @@ function AppContent() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewList, setPreviewList] = useState<DriveFileItem[]>([]);
   const [globalDragOver, setGlobalDragOver] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Close drawer when view changes
   useEffect(() => {
-    const closeContext = () => { /* context menu closes itself */ };
-    document.addEventListener('click', closeContext);
-    return () => document.removeEventListener('click', closeContext);
-  }, []);
+    setDrawerOpen(false);
+  }, [currentView]);
 
-  // Global drag & drop — accept file drops anywhere on the page
+  // Lock body scroll when drawer open
+  useEffect(() => {
+    if (drawerOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [drawerOpen]);
+
+  // Global drag & drop
   useEffect(() => {
     if (!authed) return;
     const onDragOver = (e: DragEvent) => {
@@ -84,7 +94,7 @@ function AppContent() {
 
   if (authError) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg, #0f172a)', gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg, #0f172a)', gap: 16, padding: 20 }}>
         <div style={{ color: 'var(--text, #e2e8f0)', fontSize: 18, fontWeight: 600 }}>Connection Error</div>
         <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 14, textAlign: 'center', maxWidth: 360 }}>
           Unable to reach the authentication server. Please check your connection and try again.
@@ -110,19 +120,26 @@ function AppContent() {
   const showDashboard = currentView === 'dashboard';
   const showSettings = currentView === 'settings';
   const showApi = currentView === 'api';
-  // Views that use the full FileExplorer with folder navigation
   const explorerViews = ['files', 'shared', 'shared-folder', 'folders'];
   const showExplorer = explorerViews.includes(currentView);
-  // Views that use the simple table view
   const simpleViews = ['recent', 'starred', 'photos', 'videos', 'trash', 'drives'];
   const showSimple = simpleViews.includes(currentView);
 
   return (
     <>
       <div className="app">
-        <Sidebar onOpenConvert={() => setConvertOpen(true)} />
+        <Sidebar
+          onOpenConvert={() => setConvertOpen(true)}
+          mobileOpen={drawerOpen}
+          onMobileClose={() => setDrawerOpen(false)}
+        />
+
+        {drawerOpen && (
+          <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} />
+        )}
+
         <main>
-          <MobileHead />
+          <MobileHead onMenuClick={() => setDrawerOpen(true)} />
           <TopBar onOpenUpload={() => setUploadOpen(true)} />
           {showDashboard && <DashboardView onOpenUpload={() => setUploadOpen(true)} onPreview={openPreview} />}
           {showExplorer && <FileExplorer onPreview={openPreviewWithList} />}
@@ -131,11 +148,11 @@ function AppContent() {
           {showSimple && <SimpleFileView onPreview={openPreviewWithList} />}
         </main>
       </div>
+
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <PreviewModal open={previewOpen} onClose={() => setPreviewOpen(false)} file={previewFile} fileList={previewList} />
       <ConvertModal open={convertOpen} onClose={() => setConvertOpen(false)} />
 
-      {/* Global drag & drop overlay */}
       {globalDragOver && (
         <div className="global-drop-overlay">
           <div className="global-drop-inner">
