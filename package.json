@@ -1,7 +1,7 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "my-storage-hub",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,19 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "docx": "^9.0.7",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
     "lucide-react": "^0.446.0",
+    "mammoth": "^1.8.0",
+    "marked": "^14.1.2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.7.76",
+    "pptxgenjs": "^3.12.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tesseract.js": "^5.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
