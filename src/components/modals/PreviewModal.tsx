@@ -85,13 +85,16 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   const [currentIndex, setCurrentIndex] = useState(-1);
 
   // Actions
-  const [shareFile, setShareFile] = useState<DriveFileItem | null>(null);
+  const [shareFiles, setShareFiles] = useState<DriveFileItem[]>([]);
   const [folderPicker, setFolderPicker] = useState<{ file: DriveFileItem; mode: 'move' | 'copy' } | null>(null);
   const [folderList, setFolderList] = useState<FolderEntry[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [selectedDestNode, setSelectedDestNode] = useState<string>('');
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem | null>(null);
   const [showActions, setShowActions] = useState(false);
+
+  // Local file override for navigation
+  const [localFile, setLocalFile] = useState<DriveFileItem | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -120,10 +123,11 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     setFitMode('fit');
   }, [driveFile?.id]);
 
-  // Load preview content
+  // Load preview content (initial)
   useEffect(() => {
     if (!open || !driveFile) return;
     if (driveFile.isFolder) return;
+    if (localFile) return; // delegated to the other effect
 
     setLoading(true);
     setLoadError(null);
@@ -133,20 +137,16 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     const mime = driveFile.mimeType;
 
     if (isImageMime(mime) || isHeic(mime) || driveFile.type === 'img') {
-      const url = getPreviewUrl(driveFile.id, driveFile.nodeId);
-      setPreviewUrl(url);
+      setPreviewUrl(getPreviewUrl(driveFile.id, driveFile.nodeId));
       setLoading(false);
     } else if (isVideoMime(mime) || driveFile.type === 'video') {
-      const url = getPreviewUrl(driveFile.id, driveFile.nodeId);
-      setPreviewUrl(url);
+      setPreviewUrl(getPreviewUrl(driveFile.id, driveFile.nodeId));
       setLoading(false);
     } else if (driveFile.type === 'audio' || mime.startsWith('audio/')) {
-      const url = getPreviewUrl(driveFile.id, driveFile.nodeId);
-      setPreviewUrl(url);
+      setPreviewUrl(getPreviewUrl(driveFile.id, driveFile.nodeId));
       setLoading(false);
     } else if (driveFile.type === 'pdf' || mime === 'application/pdf') {
-      const url = getPreviewUrl(driveFile.id, driveFile.nodeId);
-      setPreviewUrl(url);
+      setPreviewUrl(getPreviewUrl(driveFile.id, driveFile.nodeId));
       setLoading(false);
     } else if (isTextMime(mime)) {
       fetchTextPreview(driveFile.id, driveFile.nodeId)
@@ -161,7 +161,23 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     } else {
       setLoading(false);
     }
-  }, [open, driveFile?.id, driveFile?.nodeId, driveFile?.mimeType]);
+  }, [open, driveFile?.id, driveFile?.nodeId, driveFile?.mimeType, localFile]);
+
+  const navigatePrev = useCallback(() => {
+    if (currentIndex > 0 && navList[currentIndex - 1]) {
+      const prevFile = navList[currentIndex - 1];
+      setCurrentIndex(currentIndex - 1);
+      setLocalFile(prevFile);
+    }
+  }, [currentIndex, navList]);
+
+  const navigateNext = useCallback(() => {
+    if (currentIndex < navList.length - 1 && navList[currentIndex + 1]) {
+      const nextFile = navList[currentIndex + 1];
+      setCurrentIndex(currentIndex + 1);
+      setLocalFile(nextFile);
+    }
+  }, [currentIndex, navList]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -180,44 +196,24 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
         navigateNext();
       }
       if (e.key === '+' || e.key === '=') {
-        if (driveFile?.type === 'img') { e.preventDefault(); setZoom((z) => Math.min(z + 0.25, 5)); setFitMode('actual'); }
+        if ((localFile || driveFile)?.type === 'img') { e.preventDefault(); setZoom((z) => Math.min(z + 0.25, 5)); setFitMode('actual'); }
       }
       if (e.key === '-') {
-        if (driveFile?.type === 'img') { e.preventDefault(); setZoom((z) => Math.max(z - 0.25, 0.1)); }
+        if ((localFile || driveFile)?.type === 'img') { e.preventDefault(); setZoom((z) => Math.max(z - 0.25, 0.1)); }
       }
       if (e.key === '0') {
-        if (driveFile?.type === 'img') { e.preventDefault(); setZoom(1); setRotation(0); setFitMode('fit'); }
+        if ((localFile || driveFile)?.type === 'img') { e.preventDefault(); setZoom(1); setRotation(0); setFitMode('fit'); }
       }
-      if (e.key === 'r' && driveFile?.type === 'img') {
+      if (e.key === 'r' && (localFile || driveFile)?.type === 'img') {
         e.preventDefault();
         setRotation((r) => (r + 90) % 360);
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  });
+  }, [open, currentIndex, navList.length, fullscreen, driveFile?.type, localFile?.type, navigatePrev, navigateNext, onClose]);
 
-  const navigatePrev = useCallback(() => {
-    if (currentIndex > 0 && navList[currentIndex - 1]) {
-      const prevFile = navList[currentIndex - 1];
-      setCurrentIndex(currentIndex - 1);
-      // Simulate file change by calling onClose then openPreview
-      // Actually we need to update the file prop — use a different approach
-      // We'll use a local state to override
-      setLocalFile(prevFile);
-    }
-  }, [currentIndex, navList]);
-
-  const navigateNext = useCallback(() => {
-    if (currentIndex < navList.length - 1 && navList[currentIndex + 1]) {
-      const nextFile = navList[currentIndex + 1];
-      setCurrentIndex(currentIndex + 1);
-      setLocalFile(nextFile);
-    }
-  }, [currentIndex, navList]);
-
-  // Local file override for navigation
-  const [localFile, setLocalFile] = useState<DriveFileItem | null>(null);
+  // Effective file (respect navigation override)
   const effectiveFile = localFile || file;
   const effectiveDriveFile = effectiveFile && 'nodeId' in effectiveFile && 'id' in effectiveFile && typeof (effectiveFile as DriveFileItem).id === 'string'
     ? (effectiveFile as DriveFileItem)
@@ -234,9 +230,8 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
 
   // Re-derive preview URL when effective file changes via navigation
   useEffect(() => {
-    if (!open || !effectiveDriveFile) return;
+    if (!open || !effectiveDriveFile || !localFile) return;
     if (effectiveDriveFile.isFolder) return;
-    if (effectiveDriveFile.id === driveFile?.id && localFile === null) return; // already loaded
 
     setLoading(true);
     setLoadError(null);
@@ -266,7 +261,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     } else {
       setLoading(false);
     }
-  }, [localFile]);
+  }, [open, localFile, effectiveDriveFile?.id, effectiveDriveFile?.nodeId, effectiveDriveFile?.mimeType]);
 
   if (!open || !effectiveFile) return null;
 
@@ -375,13 +370,10 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     setTrashConfirm(null);
   };
 
-  const toggleFullscreen = () => {
-    setFullscreen((f) => !f);
-  };
-
+  const toggleFullscreen = () => setFullscreen((f) => !f);
   const zoomIn = () => { setZoom((z) => Math.min(z + 0.25, 5)); setFitMode('actual'); };
-  const zoomOut = () => { setZoom((z) => Math.max(z - 0.25, 0.1)); };
-  const rotate = () => { setRotation((r) => (r + 90) % 360); };
+  const zoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.1));
+  const rotate = () => setRotation((r) => (r + 90) % 360);
   const resetView = () => { setZoom(1); setRotation(0); setFitMode('fit'); };
   const toggleFit = () => {
     if (fitMode === 'fit') { setFitMode('actual'); setZoom(1); }
@@ -409,7 +401,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
 
   return (
     <>
-      {/* Main modal */}
       <div className="modal-wrap open" onClick={onClose} style={fullscreen ? { background: '#000' } : undefined}>
         <div
           className="preview-modal"
@@ -465,7 +456,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               </div>
             )}
 
-            {/* Image preview */}
+            {/* Image */}
             {edf && (edf.type === 'img' || isImageMime(edf.mimeType) || isHeic(edf.mimeType)) && previewUrl && !loading && (
               <div style={{ textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                 <img
@@ -477,7 +468,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
                     if (isHeic(edf.mimeType)) {
                       setLoadError('HEIC/HEIF preview not supported in this browser. Download to view.');
                     } else {
-                      setLoadError('Failed to load image. The file may be corrupted or inaccessible.');
+                      setLoadError('Failed to load image.');
                     }
                     setPreviewUrl(null);
                   }}
@@ -485,78 +476,48 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               </div>
             )}
 
-            {/* Video preview */}
+            {/* Video */}
             {edf && (edf.type === 'video' || isVideoMime(edf.mimeType)) && previewUrl && !loading && (
               <video
                 src={previewUrl}
                 controls
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: fullscreen ? '100vh' : 'calc(90vh - 140px)',
-                  borderRadius: 8,
-                }}
-                onError={() => {
-                  setLoadError('Failed to load video. The format may not be supported by your browser.');
-                  setPreviewUrl(null);
-                }}
+                style={{ maxWidth: '100%', maxHeight: fullscreen ? '100vh' : 'calc(90vh - 140px)', borderRadius: 8 }}
+                onError={() => { setLoadError('Failed to load video.'); setPreviewUrl(null); }}
               />
             )}
 
-            {/* Audio preview */}
+            {/* Audio */}
             {edf && (edf.type === 'audio' || edf.mimeType.startsWith('audio/')) && previewUrl && !loading && (
               <div style={{ textAlign: 'center', padding: 40, width: '100%' }}>
                 <div style={{ fontSize: 60, marginBottom: 16 }}>{'\u266B'}</div>
-                <audio
-                  src={previewUrl}
-                  controls
-                  style={{ width: '100%', maxWidth: 400 }}
-                  onError={() => {
-                    setLoadError('Failed to load audio.');
-                    setPreviewUrl(null);
-                  }}
-                />
+                <audio src={previewUrl} controls style={{ width: '100%', maxWidth: 400 }} onError={() => { setLoadError('Failed to load audio.'); setPreviewUrl(null); }} />
               </div>
             )}
 
-            {/* PDF preview */}
+            {/* PDF */}
             {edf && (edf.type === 'pdf' || edf.mimeType === 'application/pdf') && previewUrl && !loading && (
               <iframe
                 src={previewUrl}
-                style={{
-                  width: '100%',
-                  height: fullscreen ? 'calc(100vh - 100px)' : 'calc(90vh - 140px)',
-                  border: 'none',
-                  borderRadius: 8,
-                }}
+                style={{ width: '100%', height: fullscreen ? 'calc(100vh - 100px)' : 'calc(90vh - 140px)', border: 'none', borderRadius: 8 }}
                 title={ef.name}
-                onError={() => {
-                  setLoadError('Failed to load PDF.');
-                  setPreviewUrl(null);
-                }}
+                onError={() => { setLoadError('Failed to load PDF.'); setPreviewUrl(null); }}
               />
             )}
 
-            {/* Text preview */}
+            {/* Text */}
             {edf && textContent !== null && !loading && (
               <pre style={{
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 maxHeight: fullscreen ? 'calc(100vh - 140px)' : 400,
-                maxWidth: '100%',
-                overflow: 'auto',
-                padding: 16,
-                background: '#f5f7fb',
-                color: '#111827',
-                borderRadius: 8,
-                fontSize: 13,
-                lineHeight: 1.5,
-                margin: 0,
+                maxWidth: '100%', overflow: 'auto', padding: 16,
+                background: '#f5f7fb', color: '#111827', borderRadius: 8,
+                fontSize: 13, lineHeight: 1.5, margin: 0,
               }}>
                 {textContent}
               </pre>
             )}
 
-            {/* Unsupported / fallback */}
+            {/* Unsupported */}
             {edf && !loading && !loadError && !previewUrl && textContent === null && !edf.isFolder && (
               <div style={{ color: '#9da7b8', textAlign: 'center', padding: 30 }}>
                 <div style={{ fontSize: 50 }}>{'\u{1F4C4}'}</div>
@@ -574,11 +535,11 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
             {edf && edf.isFolder && (
               <div style={{ color: '#9da7b8', textAlign: 'center' }}>
                 <div style={{ fontSize: 50 }}>{'\u{1F4C1}'}</div>
-                <p style={{ fontSize: 15, marginTop: 12 }}>This is a folder. Use the file list to browse its contents.</p>
+                <p style={{ fontSize: 15, marginTop: 12 }}>This is a folder.</p>
               </div>
             )}
 
-            {/* Non-drive file fallback */}
+            {/* Non-drive fallback */}
             {!edf && (
               <div style={{ color: '#9da7b8', textAlign: 'center' }}>
                 <div style={{ fontSize: 40 }}>{'\u{1F4C4}'}</div>
@@ -587,7 +548,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
             )}
           </div>
 
-          {/* Image controls bar */}
+          {/* Image controls */}
           {edf && (edf.type === 'img' || isImageMime(edf.mimeType)) && previewUrl && !loading && !loadError && (
             <div className="preview-controls">
               <button className="preview-ctrl-btn" onClick={zoomOut} title="Zoom out (-)">{'\u2212'}</button>
@@ -602,7 +563,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
             </div>
           )}
 
-          {/* Video/PDF fullscreen button */}
+          {/* Video/PDF fullscreen */}
           {edf && (edf.type === 'video' || isVideoMime(edf.mimeType) || edf.type === 'pdf' || edf.mimeType === 'application/pdf') && previewUrl && !loading && !loadError && !fullscreen && (
             <div className="preview-controls">
               <button className="preview-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">{'\u26F6'}</button>
@@ -616,7 +577,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               <button className="preview-action-btn" onClick={handleDownload} disabled={!edf} title="Download">
                 {'\u2193'} <span className="preview-action-label">Download</span>
               </button>
-              <button className="preview-action-btn" onClick={() => edf && setShareFile(edf)} disabled={!edf} title="Share">
+              <button className="preview-action-btn" onClick={() => edf && setShareFiles([edf])} disabled={!edf} title="Share">
                 {'\u2197'} <span className="preview-action-label">Share</span>
               </button>
               <button className="preview-action-btn" onClick={() => setShowActions((s) => !s)} disabled={!edf} title="More actions">
@@ -638,10 +599,14 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
         </div>
       </div>
 
-      {/* Share Modal */}
-      <ShareModal file={shareFile} open={!!shareFile} onClose={() => setShareFile(null)} />
+      {/* Share Modal — FIXED: uses files array */}
+      <ShareModal
+        files={shareFiles}
+        open={shareFiles.length > 0}
+        onClose={() => setShareFiles([])}
+      />
 
-      {/* Folder Picker Modal */}
+      {/* Folder Picker */}
       {folderPicker && (
         <div className="modal-wrap open" onClick={() => setFolderPicker(null)} style={{ zIndex: 310 }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
@@ -675,18 +640,16 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
                     >
                       {'\u25B9'} My Storage (root)
                     </button>
-                    {folderList
-                      .filter((f) => f.nodeId === selectedDestNode)
-                      .map((f) => (
-                        <button
-                          key={f.id}
-                          className="xbtn"
-                          style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
-                          onClick={() => handleFolderPick(f.id, f.nodeId)}
-                        >
-                          {'\u25B8'} {f.name}
-                        </button>
-                      ))}
+                    {folderList.filter((f) => f.nodeId === selectedDestNode).map((f) => (
+                      <button
+                        key={f.id}
+                        className="xbtn"
+                        style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                        onClick={() => handleFolderPick(f.id, f.nodeId)}
+                      >
+                        {'\u25B8'} {f.name}
+                      </button>
+                    ))}
                     {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
                       <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20, fontSize: 12 }}>No folders in this drive. Using root.</div>
                     )}
@@ -698,7 +661,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
         </div>
       )}
 
-      {/* Trash Confirmation */}
+      {/* Trash confirm */}
       {trashConfirm && (
         <div className="modal-wrap open" onClick={() => setTrashConfirm(null)} style={{ zIndex: 310 }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
