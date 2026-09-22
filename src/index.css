@@ -636,3 +636,70 @@ body,
     font-size: 16px;
   }
 }
+
+/* ==================== MOBILE: FIX SIDEBAR OVERLAP ==================== */
+
+@media (max-width: 760px) {
+  /* Sidebar jadi flex column: nav scroll di atas, footer di bawah */
+  .sidebar {
+    display: flex !important;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Nav area — scroll, kasih ruang untuk footer */
+  .sidebar .nav {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 16px;
+    margin-bottom: 0;
+  }
+
+  /* Footer pindah ke flow normal (bukan absolute) */
+  .sidebar .side-bottom {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+    background: var(--panel);
+  }
+
+  /* Card storage lebih compact di mobile */
+  .sidebar .pool-mini {
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .sidebar .pool-mini strong {
+    font-size: 14px;
+  }
+
+  /* Nav padding-bottom yang lama sudah tidak perlu */
+  .nav {
+    padding-bottom: 0 !important;
+  }
+
+  /* Actions bawah lebih rapi */
+  .side-mobile-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+  }
+
+  .side-action {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  /* Brand jangan ketiban tombol close */
+  .sidebar .brand {
+    padding-right: 50px;
+  }
+}
