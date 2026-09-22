@@ -45,6 +45,19 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const handleUpload = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
 
+    // Warn for very large files
+    const MAX_SAFE_SIZE = 100 * 1024 * 1024;
+    const tooLarge: string[] = [];
+    for (const f of Array.from(files)) {
+      if (f.size > MAX_SAFE_SIZE) {
+        tooLarge.push(`${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`);
+      }
+    }
+    if (tooLarge.length > 0) {
+      const msg = `File berikut lebih dari 100 MB dan mungkin gagal upload:\n\n${tooLarge.join('\n')}\n\nLanjutkan?`;
+      if (!confirm(msg)) return;
+    }
+
     // Check for duplicates before uploading
     const duplicates: string[] = [];
     for (const file of Array.from(files)) {
@@ -77,10 +90,8 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     setDuplicatePrompt(null);
     if (!pendingFiles) return;
     if (!replace) {
-      // Upload as new — Google Drive will create duplicate names automatically
       toast('Uploading as new copy');
     } else {
-      // Replace — we still upload, the old file remains (Google Drive allows duplicate names)
       toast('Uploading — old file will remain, new copy created');
     }
     setUploading(true);
@@ -132,7 +143,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
 
         {!hasUsableDrives ? (
           <div className="pool-empty" style={{ padding: '30px 20px' }}>
-            <div className="pool-icon">{'\u25C9'}</div>
+            <div className="pool-icon">◉</div>
             <strong>No connected drive with space</strong>
             <p>Add a storage node to your pool before uploading files.</p>
           </div>
@@ -164,7 +175,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               onDrop={(e) => { e.preventDefault(); setDragging(false); void handleUpload(e.dataTransfer.files); }}
               style={{ cursor: uploading ? 'wait' : 'pointer', opacity: uploading ? 0.6 : 1 }}
             >
-              <div className="upload-cloud">{'\u2191'}</div>
+              <div className="upload-cloud">↑</div>
               <strong>{uploading ? 'Uploading...' : 'Drag & drop files here'}</strong>
               <span>or click to select · JPG, PNG, PDF, ZIP, video, and more</span>
               <input
@@ -178,13 +189,12 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </>
         )}
 
-        {/* Duplicate Warning Modal */}
         {duplicatePrompt && (
           <div style={{
             marginTop: 12, padding: 14, borderRadius: 10,
             background: '#fff8e1', border: '1px solid #f0c040',
           }}>
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>{'\u26A0'} Duplicate file detected</strong>
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>⚠ Duplicate file detected</strong>
             <p style={{ fontSize: 12, color: '#7b8495', margin: '0 0 10px' }}>
               {duplicatePrompt.filename}
             </p>
@@ -202,7 +212,6 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </div>
         )}
 
-        {/* Upload Queue */}
         {uploadSessions.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -283,7 +292,7 @@ function UploadQueueItem({
         </div>
         <div style={{ fontSize: 10, color: '#7b8495', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <span>{formatSize(session.size)}</span>
-          <span style={{ color: '#9da7b8' }}>{'\u2192'}</span>
+          <span style={{ color: '#9da7b8' }}>→</span>
           <span style={{ color: '#2563eb' }}>{nodeName}</span>
           {session.errorMessage ? <span style={{ color: '#dc2626' }}>· {session.errorMessage}</span> : null}
         </div>
@@ -304,7 +313,7 @@ function UploadQueueItem({
           <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onCancel}>Cancel</button>
         )}
         {(isCompleted || isCancelled || isFailed) && (
-          <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onClear}>{'\u00D7'}</button>
+          <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onClear}>×</button>
         )}
       </div>
     </div>

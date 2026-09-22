@@ -56,7 +56,27 @@ interface DriveFile {
 function getClientId(): string { return getEnv("GOOGLE_CLIENT_ID"); }
 function getClientSecret(): string { return getEnv("GOOGLE_CLIENT_SECRET"); }
 
-// getEnv and getSupabase are imported from _shared/security.ts
+// ============ Retry helper for Google API rate limits ============
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3,
+): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429 && res.status !== 503) return res;
+    lastRes = res;
+    const retryAfter = res.headers.get("Retry-After");
+    const delayMs = retryAfter
+      ? Math.min(Number(retryAfter) * 1000, 30000)
+      : Math.min(1000 * Math.pow(2, attempt), 15000);
+    console.warn(`[drive-ops] Rate limited (${res.status}), retry ${attempt + 1}/${maxRetries} in ${delayMs}ms`);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return lastRes!;
+}
 
 async function refreshAccessToken(node: StorageNodeRow): Promise<string> {
   if (!node.refresh_token) throw new Error("No refresh token for this storage node");
@@ -106,6 +126,176 @@ async function getValidAccessToken(node: StorageNodeRow): Promise<string> {
   return node.access_token;
 }
 
+// ============ Cross-drive transfer helpers ============
+
+const GOOGLE_APPS_PREFIX = "application/vnd.google-apps.";
+const MAX_CROSS_DRIVE_BYTES = 100 * 1024 * 1024; // 100 MB
+
+function isGoogleNative(mimeType: string): boolean {
+  return mimeType.startsWith(GOOGLE_APPS_PREFIX);
+}
+
+function exportMimeFor(mimeType: string): { exportMime: string; ext: string } {
+  if (mimeType === "application/vnd.google-apps.document") {
+    return {
+      exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ext: ".docx",
+    };
+  }
+  if (mimeType === "application/vnd.google-apps.spreadsheet") {
+    return {
+      exportMime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ext: ".xlsx",
+    };
+  }
+  if (mimeType === "application/vnd.google-apps.presentation") {
+    return {
+      exportMime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ext: ".pptx",
+    };
+  }
+  if (mimeType === "application/vnd.google-apps.drawing") {
+    return { exportMime: "image/png", ext: ".png" };
+  }
+  return {
+    exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ext: ".docx",
+  };
+}
+
+async function fetchDriveContent(
+  token: string,
+  fileId: string,
+  originalName: string,
+  originalMime: string,
+): Promise<{ blob: Blob; mimeType: string; filename: string }> {
+  if (isGoogleNative(originalMime)) {
+    const { exportMime, ext } = exportMimeFor(originalMime);
+    const res = await fetchWithRetry(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMime)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`Export failed (${res.status}): ${err}`);
+    }
+    const blob = await res.blob();
+    const filename = originalName.toLowerCase().endsWith(ext)
+      ? originalName
+      : originalName + ext;
+    return { blob, mimeType: exportMime, filename };
+  }
+
+  const res = await fetchWithRetry(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Download failed (${res.status}): ${err}`);
+  }
+  const blob = await res.blob();
+  return { blob, mimeType: originalMime, filename: originalName };
+}
+
+async function uploadToDrive(
+  destToken: string,
+  filename: string,
+  mimeType: string,
+  parentFolderId: string | null,
+  blob: Blob,
+): Promise<DriveFile> {
+  // Auto-convert Office files to Google-native format when crossing drives
+  const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const isXlsx = mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const isPptx = mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+  const needsConvert = isDocx || isXlsx || isPptx;
+  const targetMime = isDocx ? "application/vnd.google-apps.document"
+    : isXlsx ? "application/vnd.google-apps.spreadsheet"
+    : isPptx ? "application/vnd.google-apps.presentation"
+    : mimeType;
+
+  const uploadName = needsConvert
+    ? filename.replace(/\.(docx|xlsx|pptx)$/i, "")
+    : filename;
+
+  const metadata: Record<string, unknown> = {
+    name: uploadName,
+    mimeType: targetMime,
+    parents: [parentFolderId && parentFolderId !== "root" ? parentFolderId : "root"],
+  };
+  const size = blob.size;
+  const useResumable = size >= 5 * 1024 * 1024;
+  const fields = "id,name,mimeType,size,parents,modifiedTime,createdTime,thumbnailLink,webViewLink,webContentLink,starred,trashed,shared,iconLink";
+  const convertParam = needsConvert ? "&convert=true" : "";
+
+  if (useResumable) {
+    const initRes = await fetchWithRetry(
+      `https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable${convertParam}&fields=${encodeURIComponent(fields)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${destToken}`,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": mimeType,
+          "X-Upload-Content-Length": String(size),
+        },
+        body: JSON.stringify(metadata),
+      },
+    );
+    if (!initRes.ok) {
+      const err = await initRes.text().catch(() => "");
+      throw new Error(`Resumable init failed (${initRes.status}): ${err}`);
+    }
+    const uploadUrl = initRes.headers.get("Location");
+    if (!uploadUrl) throw new Error("Resumable init returned no Location header");
+
+    const putRes = await fetchWithRetry(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Length": String(size) },
+      body: blob,
+    });
+    if (!putRes.ok) {
+      const err = await putRes.text().catch(() => "");
+      throw new Error(`Resumable upload failed (${putRes.status}): ${err}`);
+    }
+    return await putRes.json() as DriveFile;
+  }
+
+  // Small file — multipart upload
+  const boundary = "mshub_" + Math.random().toString(36).slice(2);
+  const encoder = new TextEncoder();
+  const contentBuffer = new Uint8Array(await blob.arrayBuffer());
+  const parts: Uint8Array[] = [
+    encoder.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`),
+    encoder.encode(JSON.stringify(metadata)),
+    encoder.encode(`\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
+    contentBuffer,
+    encoder.encode(`\r\n--${boundary}--`),
+  ];
+  const body = new Blob(parts);
+
+  const res = await fetchWithRetry(
+    `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart${convertParam}&fields=${encodeURIComponent(fields)}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${destToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Multipart upload failed (${res.status}): ${err}`);
+  }
+  return await res.json() as DriveFile;
+}
+
+// ============ Existing helpers ============
+
 async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: number, pageToken?: string, orderBy?: string): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
   const token = await getValidAccessToken(node);
   const params = new URLSearchParams({
@@ -116,7 +306,7 @@ async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: nu
   });
   if (pageToken) params.set("pageToken", pageToken);
 
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+  const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -124,7 +314,7 @@ async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: nu
     const errText = await res.text().catch(() => "");
     if (res.status === 401) {
       const newToken = await refreshAccessToken(node);
-      const retryRes = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+      const retryRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files?${params}`, {
         headers: { Authorization: `Bearer ${newToken}` },
       });
       if (!retryRes.ok) {
@@ -147,7 +337,7 @@ async function getDriveFile(node: StorageNodeRow, fileId: string): Promise<Drive
     fields: "id,name,mimeType,size,modifiedTime,createdTime,parents,thumbnailLink,webContentLink,webViewLink,starred,trashed,shared,iconLink",
   });
 
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
+  const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -179,7 +369,7 @@ async function getAllStorageNodes(supabase: ReturnType<typeof getSupabase>): Pro
 async function getDriveQuota(node: StorageNodeRow): Promise<{ total: number | null; used: number | null }> {
   try {
     const token = await getValidAccessToken(node);
-    const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
+    const res = await fetchWithRetry("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return { total: null, used: null };
@@ -260,7 +450,6 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/drive-ops/, "");
 
-  // Require valid session for all endpoints
   const session = await validateSession(req);
   if (!session) {
     return errorResponse(401, "Unauthorized", origin);
@@ -302,7 +491,6 @@ Deno.serve(async (req: Request) => {
           query += " and 'root' in parents";
         }
 
-        // Add type filter
         if (typeFilter === "img") {
           query += " and mimeType contains 'image/'";
         } else if (typeFilter === "video") {
@@ -371,7 +559,7 @@ Deno.serve(async (req: Request) => {
 
       const escapedName = filename.replace(/'/g, "\\'");
       const query = parentGoogleId && parentGoogleId !== "root"
-        ? `name = '${escapedName}' and trashed = false`
+        ? `name = '${escapedName}' and '${parentGoogleId}' in parents and trashed = false`
         : `name = '${escapedName}' and trashed = false`;
 
       const foundNodes: { nodeId: string; fileId: string; drive: string }[] = [];
@@ -490,7 +678,7 @@ Deno.serve(async (req: Request) => {
     if (fileMatch && req.method === "GET") {
       const fileId = fileMatch[1];
       const nodeId = url.searchParams.get("nodeId");
-      if (!nodeId) throw new Error("nodeId is required");
+      if (!nodeId) throw new HttpError(400, "nodeId is required");
 
       const node = await getStorageNode(supabase, nodeId);
       const file = await getDriveFile(node, fileId);
@@ -505,7 +693,7 @@ Deno.serve(async (req: Request) => {
     if (downloadMatch && req.method === "GET") {
       const fileId = downloadMatch[1];
       const nodeId = url.searchParams.get("nodeId");
-      if (!nodeId) throw new Error("nodeId is required");
+      if (!nodeId) throw new HttpError(400, "nodeId is required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
@@ -513,11 +701,11 @@ Deno.serve(async (req: Request) => {
       const file = await getDriveFile(node, fileId);
       const filename = file.name;
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Download failed (${res.status})`);
 
       const headers = new Headers(ch);
       headers.set("Content-Type", file.mimeType || "application/octet-stream");
@@ -531,35 +719,30 @@ Deno.serve(async (req: Request) => {
     if (previewMatch && req.method === "GET") {
       const fileId = previewMatch[1];
       const nodeId = url.searchParams.get("nodeId");
-      if (!nodeId) throw new Error("nodeId is required");
+      if (!nodeId) throw new HttpError(400, "nodeId is required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
       const file = await getDriveFile(node, fileId);
 
-      // For Google Docs/Sheets/etc, use export API
       if (file.mimeType.startsWith("application/vnd.google-apps.")) {
-        const exportType = file.mimeType === "application/vnd.google-apps.document" ? "application/pdf"
-          : file.mimeType === "application/vnd.google-apps.spreadsheet" ? "application/pdf"
-          : file.mimeType === "application/vnd.google-apps.presentation" ? "application/pdf"
-          : "application/pdf";
+        const exportType = "application/pdf";
 
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportType}`, {
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportType}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error(`Export failed (${res.status})`);
+        if (!res.ok) throw new HttpError(res.status, `Export failed (${res.status})`);
 
         const headers = new Headers(ch);
         headers.set("Content-Type", exportType);
         return new Response(res.body, { headers });
       }
 
-      // For regular files, stream content
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) throw new Error(`Preview failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Preview failed (${res.status})`);
 
       const headers = new Headers(ch);
       headers.set("Content-Type", file.mimeType || "application/octet-stream");
@@ -572,16 +755,16 @@ Deno.serve(async (req: Request) => {
     if (textPreviewMatch && req.method === "GET") {
       const fileId = textPreviewMatch[1];
       const nodeId = url.searchParams.get("nodeId");
-      if (!nodeId) throw new Error("nodeId is required");
+      if (!nodeId) throw new HttpError(400, "nodeId is required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) throw new Error(`Text preview failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Text preview failed (${res.status})`);
 
       const text = await res.text();
       const truncated = text.length > 100000 ? text.substring(0, 100000) + "\n\n... (truncated)" : text;
@@ -595,7 +778,7 @@ Deno.serve(async (req: Request) => {
     if (path === "/folders" && req.method === "GET") {
       const nodeId = url.searchParams.get("nodeId");
       const listAll = url.searchParams.get("all") === "true";
-      if (!nodeId && !listAll) throw new Error("nodeId is required or all=true");
+      if (!nodeId && !listAll) throw new HttpError(400, "nodeId is required or all=true");
 
       const nodesToList = listAll ? nodes.filter((n) => n.status === "connected") : [await getStorageNode(supabase, nodeId!)];
       const allFolders: { id: string; name: string; parents?: string[]; nodeId: string; driveName: string }[] = [];
@@ -609,7 +792,7 @@ Deno.serve(async (req: Request) => {
             fields: "files(id,name,parents)",
             orderBy: "name",
           });
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+          const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files?${params}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) {
@@ -632,18 +815,18 @@ Deno.serve(async (req: Request) => {
     if (path === "/rename" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, newName } = body;
-      if (!fileId || !nodeId || !newName) throw new Error("fileId, nodeId, newName required");
+      if (!fileId || !nodeId || !newName) throw new HttpError(400, "fileId, nodeId, newName required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName }),
       });
 
-      if (!res.ok) throw new Error(`Rename failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Rename failed (${res.status})`);
       const updated = await res.json();
 
       return new Response(JSON.stringify(publicFile(updated, node)), {
@@ -655,18 +838,18 @@ Deno.serve(async (req: Request) => {
     if (path === "/trash" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ trashed: true }),
       });
 
-      if (!res.ok) throw new Error(`Trash failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Trash failed (${res.status})`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -677,18 +860,18 @@ Deno.serve(async (req: Request) => {
     if (path === "/untrash" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ trashed: false }),
       });
 
-      if (!res.ok) throw new Error(`Untrash failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Untrash failed (${res.status})`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -699,18 +882,18 @@ Deno.serve(async (req: Request) => {
     if (path === "/star" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, starred } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ starred: starred !== false }),
       });
 
-      if (!res.ok) throw new Error(`Star failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Star failed (${res.status})`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -721,72 +904,73 @@ Deno.serve(async (req: Request) => {
     if (path === "/copy" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, destNodeId, destFolderId } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const copyBody: Record<string, unknown> = {};
-      if (destFolderId && destFolderId !== "root") {
-        copyBody.parents = [destFolderId];
-      }
-
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(copyBody),
-      });
-
-      if (!res.ok) throw new Error(`Copy failed (${res.status})`);
-      const copied = await res.json();
-
-      // If cross-drive copy requested, transfer to destination drive
-      if (destNodeId && destNodeId !== nodeId) {
-        const destNode = await getStorageNode(supabase, destNodeId);
-        const destToken = await getValidAccessToken(destNode);
-        // Create a copy on the destination drive using the file's content
-        const sourceRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!sourceRes.ok) throw new Error(`Cross-drive copy: source fetch failed (${sourceRes.status})`);
-        const fileBlob = await sourceRes.blob();
-        const uploadBody: Record<string, unknown> = { name: copied.name };
+      // Same-drive copy — use Google's native copy API
+      if (!destNodeId || destNodeId === nodeId) {
+        const copyBody: Record<string, unknown> = {};
         if (destFolderId && destFolderId !== "root") {
-          uploadBody.parents = [destFolderId];
-        } else {
-          uploadBody.parents = ["root"];
+          copyBody.parents = [destFolderId];
         }
-        const uploadRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${destToken}`,
-            "Content-Type": copied.mimeType || "application/octet-stream",
-          },
-          body: JSON.stringify(uploadBody),
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(copyBody),
         });
-        // Upload content via resumable or simple upload
-        const uploadData = await uploadRes.json();
-        const contentRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${uploadData.id}?uploadType=media`, {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${destToken}`,
-            "Content-Type": copied.mimeType || "application/octet-stream",
-          },
-          body: fileBlob,
-        });
-        if (!contentRes.ok) throw new Error(`Cross-drive copy: upload failed (${contentRes.status})`);
-        const finalFile = await contentRes.json();
-        // Delete the same-drive copy we made first
-        await fetch(`https://www.googleapis.com/drive/v3/files/${copied.id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        return new Response(JSON.stringify(publicFile(finalFile, destNode)), {
+        if (!res.ok) {
+          const err = await res.text().catch(() => "");
+          throw new HttpError(res.status, `Copy failed: ${err}`);
+        }
+        const copied = await res.json();
+        return new Response(JSON.stringify(publicFile(copied, node)), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
 
-      return new Response(JSON.stringify(publicFile(copied, node)), {
+      // Cross-drive copy — download from source, upload to destination
+      const sourceMeta = await getDriveFile(node, fileId);
+      const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
+      if (sizeBytes > MAX_CROSS_DRIVE_BYTES) {
+        throw new HttpError(
+          413,
+          `File too large for cross-drive transfer (max 100 MB via server). ` +
+          `File size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. ` +
+          `Download and re-upload manually.`,
+        );
+      }
+
+      const destNode = await getStorageNode(supabase, destNodeId);
+      const destToken = await getValidAccessToken(destNode);
+
+      const { blob, mimeType, filename } = await fetchDriveContent(
+        token,
+        fileId,
+        sourceMeta.name,
+        sourceMeta.mimeType,
+      );
+
+      const uploaded = await uploadToDrive(
+        destToken,
+        filename,
+        mimeType,
+        destFolderId || null,
+        blob,
+      );
+
+      await supabase.from("file_mappings").upsert({
+        storage_node_id: destNode.id,
+        google_file_id: uploaded.id,
+        filename: uploaded.name,
+        mime_type: uploaded.mimeType,
+        size: Number(uploaded.size || 0),
+        parent_google_id: uploaded.parents?.[0] || null,
+        is_folder: false,
+      }, { onConflict: "storage_node_id,google_file_id" });
+
+      return new Response(JSON.stringify(publicFile(uploaded, destNode)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
@@ -795,62 +979,81 @@ Deno.serve(async (req: Request) => {
     if (path === "/move" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, newParentId, destNodeId } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      // Cross-drive move: copy to dest drive then delete original
+      // Cross-drive move — download + upload + delete original
       if (destNodeId && destNodeId !== nodeId) {
+        const sourceMeta = await getDriveFile(node, fileId);
+        const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
+        if (sizeBytes > MAX_CROSS_DRIVE_BYTES) {
+          throw new HttpError(
+            413,
+            `File too large for cross-drive transfer (max 100 MB via server). ` +
+            `File size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. ` +
+            `Download and re-upload manually.`,
+          );
+        }
+
         const destNode = await getStorageNode(supabase, destNodeId);
         const destToken = await getValidAccessToken(destNode);
-        const file = await getDriveFile(node, fileId);
 
-        // Fetch file content
-        const sourceRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!sourceRes.ok) throw new Error(`Cross-drive move: source fetch failed (${sourceRes.status})`);
-        const fileBlob = await sourceRes.blob();
+        const { blob, mimeType, filename } = await fetchDriveContent(
+          token,
+          fileId,
+          sourceMeta.name,
+          sourceMeta.mimeType,
+        );
 
-        // Upload to destination
-        const uploadBody: Record<string, unknown> = { name: file.name };
-        if (newParentId && newParentId !== "root") {
-          uploadBody.parents = [newParentId];
-        } else {
-          uploadBody.parents = ["root"];
-        }
-        const uploadRes = await fetch("https://www.googleapis.com/drive/v3/files", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${destToken}`,
-            "Content-Type": file.mimeType || "application/octet-stream",
-          },
-          body: JSON.stringify(uploadBody),
-        });
-        const uploadData = await uploadRes.json();
-        const contentRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${uploadData.id}?uploadType=media`, {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${destToken}`,
-            "Content-Type": file.mimeType || "application/octet-stream",
-          },
-          body: fileBlob,
-        });
-        if (!contentRes.ok) throw new Error(`Cross-drive move: upload failed (${contentRes.status})`);
+        const uploaded = await uploadToDrive(
+          destToken,
+          filename,
+          mimeType,
+          newParentId || null,
+          blob,
+        );
 
-        // Delete original
-        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        const delRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (!delRes.ok && delRes.status !== 204) {
+          console.error(`Cross-drive move: failed to delete source (${delRes.status})`);
+          return new Response(JSON.stringify({
+            success: true,
+            crossDrive: true,
+            warning: "Copied to destination but source could not be deleted",
+            newFile: publicFile(uploaded, destNode),
+          }), {
+            status: 207,
+            headers: { ...ch, "Content-Type": "application/json" },
+          });
+        }
+
+        await supabase.from("file_mappings").upsert({
+          storage_node_id: destNode.id,
+          google_file_id: uploaded.id,
+          filename: uploaded.name,
+          mime_type: uploaded.mimeType,
+          size: Number(uploaded.size || 0),
+          parent_google_id: uploaded.parents?.[0] || null,
+          is_folder: false,
+        }, { onConflict: "storage_node_id,google_file_id" });
+
+        await supabase
+          .from("file_mappings")
+          .delete()
+          .eq("storage_node_id", node.id)
+          .eq("google_file_id", fileId);
 
         return new Response(JSON.stringify({ success: true, crossDrive: true }), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
 
-      // Same-drive move: just change parents
+      // Same-drive move — just change parents
       const file = await getDriveFile(node, fileId);
       const currentParents = file.parents || [];
 
@@ -862,13 +1065,16 @@ Deno.serve(async (req: Request) => {
         params.set("addParents", newParentId);
       }
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
 
-      if (!res.ok) throw new Error(`Move failed (${res.status})`);
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        throw new HttpError(res.status, `Move failed: ${err}`);
+      }
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -879,7 +1085,7 @@ Deno.serve(async (req: Request) => {
     if (path === "/create-folder" && req.method === "POST") {
       const body = await req.json();
       const { nodeId, name, parentId } = body;
-      if (!nodeId || !name) throw new Error("nodeId, name required");
+      if (!nodeId || !name) throw new HttpError(400, "nodeId, name required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
@@ -894,13 +1100,13 @@ Deno.serve(async (req: Request) => {
         folderBody.parents = ["root"];
       }
 
-      const res = await fetch("https://www.googleapis.com/drive/v3/files", {
+      const res = await fetchWithRetry("https://www.googleapis.com/drive/v3/files", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(folderBody),
       });
 
-      if (!res.ok) throw new Error(`Create folder failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Create folder failed (${res.status})`);
       const folder = await res.json();
 
       return new Response(JSON.stringify(publicFile(folder, node)), {
@@ -912,7 +1118,7 @@ Deno.serve(async (req: Request) => {
     if (path === "/share" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, access } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
@@ -925,15 +1131,14 @@ Deno.serve(async (req: Request) => {
       } else if (access === "unlisted") {
         permission = { type: "anyone", role: "reader", allowFileDiscovery: false };
       } else {
-        // private — remove all anyone permissions
-        const listRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+        const listRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (listRes.ok) {
           const perms = await listRes.json();
           for (const p of perms.permissions || []) {
             if (p.type === "anyone") {
-              await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions/${p.id}`, {
+              await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions/${p.id}`, {
                 method: "DELETE",
                 headers: { Authorization: `Bearer ${token}` },
               });
@@ -945,13 +1150,13 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(permission),
       });
 
-      if (!res.ok) throw new Error(`Share failed (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Share failed (${res.status})`);
 
       return new Response(JSON.stringify({ success: true, access }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -962,17 +1167,17 @@ Deno.serve(async (req: Request) => {
     if (path === "/delete" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`);
+      if (!res.ok && res.status !== 204) throw new HttpError(res.status, `Delete failed (${res.status})`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
@@ -983,16 +1188,16 @@ Deno.serve(async (req: Request) => {
     if (path === "/permissions" && req.method === "GET") {
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(id,type,role,emailAddress,displayName,photoLink,expirationTime)`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(id,type,role,emailAddress,displayName,photoLink,expirationTime)`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) throw new Error(`Failed to list permissions (${res.status})`);
+      if (!res.ok) throw new HttpError(res.status, `Failed to list permissions (${res.status})`);
       const data = await res.json();
 
       return new Response(JSON.stringify({ permissions: data.permissions || [] }), {
@@ -1004,12 +1209,12 @@ Deno.serve(async (req: Request) => {
     if (path === "/permissions" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, email, role } = body;
-      if (!fileId || !nodeId || !email || !role) throw new Error("fileId, nodeId, email, role required");
+      if (!fileId || !nodeId || !email || !role) throw new HttpError(400, "fileId, nodeId, email, role required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1039,12 +1244,12 @@ Deno.serve(async (req: Request) => {
     if (path === "/permissions" && req.method === "DELETE") {
       const body = await req.json();
       const { fileId, nodeId, permissionId } = body;
-      if (!fileId || !nodeId || !permissionId) throw new Error("fileId, nodeId, permissionId required");
+      if (!fileId || !nodeId || !permissionId) throw new HttpError(400, "fileId, nodeId, permissionId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions/${permissionId}`, {
+      const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions/${permissionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1068,7 +1273,7 @@ Deno.serve(async (req: Request) => {
     if (path === "/share-link" && req.method === "GET") {
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
-      if (!fileId || !nodeId) throw new Error("fileId, nodeId required");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
 
       const node = await getStorageNode(supabase, nodeId);
       const file = await getDriveFile(node, fileId);
@@ -1083,11 +1288,10 @@ Deno.serve(async (req: Request) => {
 
     // ============ Device Management ============
 
-    // POST /drive-ops/devices/register — register or update device session
     if (path === "/devices/register" && req.method === "POST") {
       const body = await req.json();
       const { deviceId, deviceName, browser, os, userAgent } = body;
-      if (!deviceId) throw new Error("deviceId required");
+      if (!deviceId) throw new HttpError(400, "deviceId required");
 
       const { data: existing } = await supabase.from("devices").select("*").eq("device_id", deviceId).maybeSingle();
 
@@ -1119,7 +1323,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/devices — list all devices
     if (path === "/devices" && req.method === "GET") {
       const { data, error } = await supabase
         .from("devices")
@@ -1133,11 +1336,10 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/devices/revoke — revoke a device
     if (path === "/devices/revoke" && req.method === "POST") {
       const body = await req.json();
       const { deviceId } = body;
-      if (!deviceId) throw new Error("deviceId required");
+      if (!deviceId) throw new HttpError(400, "deviceId required");
 
       await supabase.from("devices").update({
         status: "revoked",
@@ -1151,11 +1353,10 @@ Deno.serve(async (req: Request) => {
 
     // ============ Activity Log ============
 
-    // POST /drive-ops/activity — log an activity
     if (path === "/activity" && req.method === "POST") {
       const body = await req.json();
       const { action, target, targetType, storageNodeId, storageNodeName, status, deviceId } = body;
-      if (!action) throw new Error("action required");
+      if (!action) throw new HttpError(400, "action required");
 
       const { data, error } = await supabase.from("activity_logs").insert({
         event_type: action,
@@ -1173,10 +1374,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/activity — list activity logs with optional filter
     if (path === "/activity" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "50");
-      const filter = url.searchParams.get("filter"); // all, files, storage, sharing, system
+      const filter = url.searchParams.get("filter");
 
       let query = supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(limit);
 
@@ -1213,8 +1413,7 @@ Deno.serve(async (req: Request) => {
     if (err instanceof HttpError) {
       return errorResponse(err.status, err.message, origin);
     }
+    console.error("drive-ops error:", err instanceof Error ? err.message : String(err));
     return errorResponse(500, "Internal server error", origin);
   }
 });
-
-
