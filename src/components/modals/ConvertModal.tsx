@@ -1,65 +1,546 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
+import {
+  mergePdfs, splitPdf, rotatePdf, imagesToPdf, pdfToJpgs,
+  addWatermark, addPageNumbers, cropPdf, organizePdf, redactPdf,
+  signPdf, addTextToPdf, compressPdf, repairPdf, unlockPdf, protectPdf, pdfToPdfA,
+  ocrPdf, comparePdfs, captureFromCamera,
+  pdfToWord, pdfToExcel, pdfToPptx,
+  wordToPdf, excelToPdf, powerpointToPdf,
+  translateText, markdownToPdf, pdfToMarkdown, summarizeWithGemini,
+  downloadBlob, uint8ToBlob, stripExt, readPdfText,
+} from '@/utils/pdfTools';
 
 interface ConvertModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-interface PdfTool {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-}
+interface PdfTool { id: string; name: string; description: string; icon: string; }
 
 const tools: PdfTool[] = [
-  { id: 'merge', name: 'Merge', description: 'Combine multiple PDFs into one file', icon: '\u29C9' },
-  { id: 'split', name: 'Split', description: 'Extract pages or divide a PDF into parts', icon: '\u29D6' },
-  { id: 'compress', name: 'Compress', description: 'Reduce PDF file size while keeping quality', icon: '\u229D' },
-  { id: 'pdf-to-word', name: 'PDF to Word', description: 'Convert PDF into editable Word document', icon: 'W' },
-  { id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', description: 'Convert PDF to editable slides', icon: 'P' },
-  { id: 'pdf-to-excel', name: 'PDF to Excel', description: 'Extract tables into a spreadsheet', icon: 'X' },
-  { id: 'word-to-pdf', name: 'Word to PDF', description: 'Convert .docx files to PDF', icon: 'W' },
-  { id: 'powerpoint-to-pdf', name: 'PowerPoint to PDF', description: 'Convert .pptx slides to PDF', icon: 'P' },
-  { id: 'excel-to-pdf', name: 'Excel to PDF', description: 'Convert .xlsx spreadsheets to PDF', icon: 'X' },
-  { id: 'edit-pdf', name: 'Edit PDF', description: 'Add text, shapes, and annotations', icon: '\u270E' },
-  { id: 'pdf-to-jpg', name: 'PDF to JPG', description: 'Convert each page into a JPG image', icon: '\u25F3' },
-  { id: 'jpg-to-pdf', name: 'JPG to PDF', description: 'Combine images into a single PDF', icon: '\u25F4' },
-  { id: 'sign', name: 'Sign', description: 'Add your signature to a PDF', icon: '\u2713' },
-  { id: 'watermark', name: 'Watermark', description: 'Stamp text or image across pages', icon: '\u229B' },
-  { id: 'rotate', name: 'Rotate', description: 'Rotate pages or the entire document', icon: '\u21BB' },
-  { id: 'unlock', name: 'Unlock', description: 'Remove password protection from a PDF', icon: '\u2744' },
-  { id: 'protect', name: 'Protect', description: 'Add a password to secure your PDF', icon: '\u2726' },
-  { id: 'organize', name: 'Organize', description: 'Reorder, delete, or insert pages', icon: '\u29C8' },
-  { id: 'pdf-a', name: 'PDF/A', description: 'Convert to long-term archival format', icon: 'A' },
-  { id: 'repair', name: 'Repair', description: 'Fix corrupted or damaged PDF files', icon: '\u26A1' },
-  { id: 'page-numbers', name: 'Page Numbers', description: 'Insert page numbers in any position', icon: '#' },
-  { id: 'scan', name: 'Scan', description: 'Scan documents using your camera', icon: '\u29BF' },
-  { id: 'ocr', name: 'OCR', description: 'Extract text from scanned PDFs', icon: '\u2295' },
-  { id: 'compare', name: 'Compare', description: 'Highlight differences between two PDFs', icon: '\u29C1' },
-  { id: 'redact', name: 'Redact', description: 'Permanently black out sensitive content', icon: '\u25A0' },
-  { id: 'crop', name: 'Crop', description: 'Trim margins and adjust page size', icon: '\u2702' },
-  { id: 'forms', name: 'Forms', description: 'Create and fill interactive PDF forms', icon: '\u29D2' },
-  { id: 'ai-summarizer', name: 'AI Summarizer', description: 'Generate a summary of your document', icon: '\u2756' },
-  { id: 'translate', name: 'Translate', description: 'Translate text within a PDF', icon: '\u29C7' },
-  { id: 'markdown', name: 'Markdown', description: 'Convert PDF to Markdown format', icon: 'M' },
+  { id: 'merge', name: 'Merge', description: 'Gabung beberapa PDF jadi satu', icon: '⧉' },
+  { id: 'split', name: 'Split', description: 'Ambil halaman tertentu dari PDF', icon: '⧖' },
+  { id: 'compress', name: 'Compress', description: 'Perkecil ukuran PDF', icon: '⊝' },
+  { id: 'pdf-to-word', name: 'PDF to Word', description: 'Ubah PDF jadi Word', icon: 'W' },
+  { id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', description: 'Ubah PDF jadi slide', icon: 'P' },
+  { id: 'pdf-to-excel', name: 'PDF to Excel', description: 'Ekstrak tabel ke spreadsheet', icon: 'X' },
+  { id: 'word-to-pdf', name: 'Word to PDF', description: 'Ubah .docx jadi PDF', icon: 'W' },
+  { id: 'powerpoint-to-pdf', name: 'PowerPoint to PDF', description: 'Ubah .pptx jadi PDF', icon: 'P' },
+  { id: 'excel-to-pdf', name: 'Excel to PDF', description: 'Ubah .xlsx jadi PDF', icon: 'X' },
+  { id: 'edit-pdf', name: 'Edit PDF', description: 'Tambah teks ke halaman', icon: '✎' },
+  { id: 'pdf-to-jpg', name: 'PDF to JPG', description: 'Ubah tiap halaman jadi JPG', icon: '◳' },
+  { id: 'jpg-to-pdf', name: 'JPG to PDF', description: 'Gabung gambar jadi PDF', icon: '◰' },
+  { id: 'sign', name: 'Sign', description: 'Tambah tanda tangan', icon: '✓' },
+  { id: 'watermark', name: 'Watermark', description: 'Cap teks di halaman', icon: '⊛' },
+  { id: 'rotate', name: 'Rotate', description: 'Putar halaman PDF', icon: '↻' },
+  { id: 'unlock', name: 'Unlock', description: 'Buka proteksi PDF', icon: '❄' },
+  { id: 'protect', name: 'Protect', description: 'Tandai PDF protected', icon: '✦' },
+  { id: 'organize', name: 'Organize', description: 'Susun ulang halaman', icon: '⧈' },
+  { id: 'pdf-a', name: 'PDF/A', description: 'Format arsip jangka panjang', icon: 'A' },
+  { id: 'repair', name: 'Repair', description: 'Perbaiki PDF rusak', icon: '⚡' },
+  { id: 'page-numbers', name: 'Page Numbers', description: 'Tambah nomor halaman', icon: '#' },
+  { id: 'scan', name: 'Scan', description: 'Scan pakai kamera', icon: '⦿' },
+  { id: 'ocr', name: 'OCR', description: 'Ekstrak teks dari scan', icon: '⊕' },
+  { id: 'compare', name: 'Compare', description: 'Bandingkan 2 PDF', icon: '⧁' },
+  { id: 'redact', name: 'Redact', description: 'Hitamkan area tertentu', icon: '■' },
+  { id: 'crop', name: 'Crop', description: 'Potong margin', icon: '✂' },
+  { id: 'forms', name: 'Forms', description: 'Tambah field form', icon: '⧒' },
+  { id: 'ai-summarizer', name: 'AI Summarizer', description: 'Ringkas dokumen', icon: '❖' },
+  { id: 'translate', name: 'Translate', description: 'Terjemah teks PDF', icon: '⧇' },
+  { id: 'markdown', name: 'Markdown', description: 'PDF ↔ Markdown', icon: 'M' },
 ];
 
 export function ConvertModal({ open, onClose }: ConvertModalProps) {
   const { toast } = useApp();
   const [search, setSearch] = useState('');
+  const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [result, setResult] = useState<{ blob: Blob; filename: string }[] | null>(null);
+
+  // Options
+  const [fromPage, setFromPage] = useState(1);
+  const [toPage, setToPage] = useState(1);
+  const [angle, setAngle] = useState<90 | 180 | 270>(90);
+  const [wmText, setWmText] = useState('CONFIDENTIAL');
+  const [cropT, setCropT] = useState(20);
+  const [cropR, setCropR] = useState(20);
+  const [cropB, setCropB] = useState(20);
+  const [cropL, setCropL] = useState(20);
+  const [order, setOrder] = useState('1,2,3');
+  const [editText, setEditText] = useState('Hello');
+  const [editPage, setEditPage] = useState(0);
+  const [editX, setEditX] = useState(50);
+  const [editY, setEditY] = useState(50);
+  const [signatureDataUrl, setSignatureDataUrl] = useState('');
+  const [ocrLang, setOcrLang] = useState('eng');
+  const [ocrResult, setOcrResult] = useState('');
+  const [translateLang, setTranslateLang] = useState('id');
+  const [markdownInput, setMarkdownInput] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [aiSummary, setAiSummary] = useState('');
+  const [compareResult, setCompareResult] = useState<{ page: number; img1: string; img2: string }[]>([]);
+  const [formFields, setFormFields] = useState('Nama,Alamat,Tanggal');
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filtered = search.trim()
-    ? tools.filter((t) =>
-        t.name.toLowerCase().includes(search.toLowerCase()) ||
-        t.description.toLowerCase().includes(search.toLowerCase()))
+    ? tools.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()) || t.description.toLowerCase().includes(search.toLowerCase()))
     : tools;
 
-  const handleToolClick = (tool: PdfTool) => {
-    toast(tool.name + ' — Coming Soon');
+  const resetTool = () => {
+    setActiveTool(null); setFiles([]); setProcessing(false); setProgress(''); setResult(null);
+    setOcrResult(''); setAiSummary(''); setCompareResult([]); setSignatureDataUrl(''); setMarkdownInput('');
   };
 
+  useEffect(() => { if (!open) resetTool(); }, [open]);
+
+  const handleToolClick = (tool: PdfTool) => {
+    setActiveTool(tool.id);
+    setFiles([]); setResult(null); setProgress(''); setOcrResult(''); setAiSummary(''); setCompareResult([]);
+  };
+
+  const handleFileSelect = (fl: FileList | null) => {
+    if (!fl?.length) return;
+    setFiles(Array.from(fl));
+    setResult(null);
+  };
+
+  const acceptFor = (): string => {
+    if (activeTool === 'jpg-to-pdf') return 'image/jpeg,image/png';
+    if (activeTool === 'word-to-pdf') return '.docx';
+    if (activeTool === 'excel-to-pdf') return '.xlsx,.xls';
+    if (activeTool === 'powerpoint-to-pdf') return '.pptx';
+    return 'application/pdf,.pdf';
+  };
+
+  const multipleFor = (): boolean => ['merge', 'jpg-to-pdf', 'compare'].includes(activeTool || '');
+
+  const canProcess = (): boolean => {
+    if (processing) return false;
+    if (activeTool === 'scan') return true;
+    if (activeTool === 'markdown' && markdownInput.trim()) return true;
+    if (activeTool === 'ai-summarizer' && (markdownInput.trim() || files.length > 0)) return true;
+    if (activeTool === 'compare') return files.length === 2;
+    if (files.length === 0) return false;
+    if (activeTool === 'merge') return files.length >= 2;
+    if (activeTool === 'sign') return !!signatureDataUrl;
+    return true;
+  };
+
+  const run = async () => {
+    if (!activeTool) return;
+    setProcessing(true); setResult(null); setProgress('Memproses...');
+    try {
+      const f0 = files[0];
+      switch (activeTool) {
+        case 'merge': {
+          const bytes = await mergePdfs(files);
+          setResult([{ blob: uint8ToBlob(bytes), filename: 'merged.pdf' }]);
+          break;
+        }
+        case 'split': {
+          const bytes = await splitPdf(f0, fromPage, toPage);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_p${fromPage}-${toPage}.pdf` }]);
+          break;
+        }
+        case 'rotate': {
+          const bytes = await rotatePdf(f0, angle);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_rot${angle}.pdf` }]);
+          break;
+        }
+        case 'jpg-to-pdf': {
+          const bytes = await imagesToPdf(files);
+          setResult([{ blob: uint8ToBlob(bytes), filename: 'images.pdf' }]);
+          break;
+        }
+        case 'pdf-to-jpg': {
+          const pages = await pdfToJpgs(f0);
+          setResult(pages.map((p) => ({ blob: p.blob, filename: `${stripExt(f0.name)}_page-${p.page}.jpg` })));
+          break;
+        }
+        case 'watermark': {
+          const bytes = await addWatermark(f0, wmText);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_watermark.pdf` }]);
+          break;
+        }
+        case 'page-numbers': {
+          const bytes = await addPageNumbers(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_numbered.pdf` }]);
+          break;
+        }
+        case 'crop': {
+          const bytes = await cropPdf(f0, { top: cropT, right: cropR, bottom: cropB, left: cropL });
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_cropped.pdf` }]);
+          break;
+        }
+        case 'organize': {
+          const nums = order.split(',').map((s) => parseInt(s.trim()) - 1).filter((n) => !isNaN(n));
+          const bytes = await organizePdf(f0, nums);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_reordered.pdf` }]);
+          break;
+        }
+        case 'redact': {
+          const bytes = await redactPdf(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_redacted.pdf` }]);
+          break;
+        }
+        case 'edit-pdf': {
+          const bytes = await addTextToPdf(f0, editText, { page: editPage, x: editX, y: editY });
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_edited.pdf` }]);
+          break;
+        }
+        case 'sign': {
+          const bytes = await signPdf(f0, signatureDataUrl);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_signed.pdf` }]);
+          break;
+        }
+        case 'compress': {
+          const bytes = await compressPdf(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_compressed.pdf` }]);
+          break;
+        }
+        case 'repair': {
+          const bytes = await repairPdf(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_repaired.pdf` }]);
+          break;
+        }
+        case 'unlock': {
+          const bytes = await unlockPdf(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_unlocked.pdf` }]);
+          break;
+        }
+        case 'protect': {
+          const bytes = await protectPdf(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_protected.pdf` }]);
+          break;
+        }
+        case 'pdf-a': {
+          const bytes = await pdfToPdfA(f0);
+          setResult([{ blob: uint8ToBlob(bytes), filename: `${stripExt(f0.name)}_pdfa.pdf` }]);
+          break;
+        }
+        case 'ocr': {
+          setProgress('OCR (download bahasa dulu)...');
+          const text = await ocrPdf(f0, ocrLang, (p: any) => setProgress(`Hal ${p.progress ? Math.round(p.progress * 100) : 0}%`));
+          setOcrResult(text);
+          setResult([{ blob: new Blob([text], { type: 'text/plain' }), filename: `${stripExt(f0.name)}_ocr.txt` }]);
+          break;
+        }
+        case 'compare': {
+          setProgress('Render perbandingan...');
+          const cmp = await comparePdfs(files[0], files[1]);
+          setCompareResult(cmp);
+          break;
+        }
+        case 'pdf-to-word': {
+          const blob = await pdfToWord(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.docx` }]);
+          break;
+        }
+        case 'pdf-to-excel': {
+          const blob = await pdfToExcel(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.xlsx` }]);
+          break;
+        }
+        case 'pdf-to-powerpoint': {
+          setProgress('Render slide...');
+          const blob = await pdfToPptx(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.pptx` }]);
+          break;
+        }
+        case 'word-to-pdf': {
+          setProgress('Word → PDF...');
+          const blob = await wordToPdf(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.pdf` }]);
+          break;
+        }
+        case 'excel-to-pdf': {
+          setProgress('Excel → PDF...');
+          const blob = await excelToPdf(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.pdf` }]);
+          break;
+        }
+        case 'powerpoint-to-pdf': {
+          setProgress('PowerPoint → PDF...');
+          const blob = await powerpointToPdf(f0);
+          setResult([{ blob, filename: `${stripExt(f0.name)}.pdf` }]);
+          break;
+        }
+        case 'translate': {
+          setProgress('Menerjemahkan...');
+          const text = await readPdfText(f0);
+          const translated = await translateText(text, translateLang);
+          setResult([{ blob: new Blob([translated], { type: 'text/plain' }), filename: `${stripExt(f0.name)}_translated.txt` }]);
+          break;
+        }
+        case 'markdown': {
+          if (markdownInput.trim()) {
+            setProgress('Markdown → PDF...');
+            const blob = await markdownToPdf(markdownInput);
+            setResult([{ blob, filename: 'markdown.pdf' }]);
+          } else if (f0) {
+            const md = await pdfToMarkdown(f0);
+            setMarkdownInput(md);
+            setResult([{ blob: new Blob([md], { type: 'text/markdown' }), filename: `${stripExt(f0.name)}.md` }]);
+          }
+          break;
+        }
+        case 'ai-summarizer': {
+          if (!geminiKey.trim()) throw new Error('Masukkan Gemini API key');
+          setProgress('Mengirim ke AI...');
+          const text = markdownInput.trim() || (f0 ? await readPdfText(f0) : '');
+          const summary = await summarizeWithGemini(text, geminiKey);
+          setAiSummary(summary);
+          setResult([{ blob: new Blob([summary], { type: 'text/plain' }), filename: 'summary.txt' }]);
+          break;
+        }
+        case 'forms': {
+          const { PDFDocument: PDFD, rgb, StandardFonts: SF } = await import('pdf-lib');
+          const bytes = await f0.arrayBuffer();
+          const doc = await PDFD.load(bytes, { ignoreEncryption: true });
+          const font = await doc.embedFont(SF.Helvetica);
+          const page = doc.getPage(0);
+          const { height } = page.getSize();
+          const labels = formFields.split(',').map((s) => s.trim()).filter(Boolean);
+          labels.forEach((label, i) => {
+            const y = height - 80 - i * 40;
+            page.drawText(`${label}:`, { x: 50, y, size: 12, font, color: rgb(0, 0, 0) });
+            page.drawRectangle({ x: 150, y: y - 4, width: 300, height: 20, borderColor: rgb(0.5, 0.5, 0.5), borderWidth: 1 });
+          });
+          const out = await doc.save();
+          setResult([{ blob: uint8ToBlob(out), filename: `${stripExt(f0.name)}_form.pdf` }]);
+          break;
+        }
+        case 'scan': {
+          setProgress('Buka kamera...');
+          await new Promise<void>((resolve) => {
+            captureFromCamera((blob) => {
+              setFiles((prev) => [...prev, new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' })]);
+            }).then((close) => { setTimeout(close, 120000); resolve(); });
+          });
+          setProgress('Klik Process untuk gabung jadi PDF.');
+          break;
+        }
+      }
+      setProgress('');
+      toast('Selesai');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Gagal');
+      setProgress('');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!result) return;
+    if (result.length === 1) downloadBlob(result[0].blob, result[0].filename);
+    else result.forEach((r, i) => setTimeout(() => downloadBlob(r.blob, r.filename), i * 200));
+  };
+
+  if (!open) return null;
+
+  // Tool panel
+  if (activeTool) {
+    const tool = tools.find((t) => t.id === activeTool)!;
+    return (
+      <div className="modal-wrap open">
+        <div className="modal converter" style={{ width: 'min(620px, 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <span style={{ fontSize: 20 }}>{tool.icon}</span> {tool.name}
+              </h3>
+              <p style={{ marginBottom: 0 }}>{tool.description}</p>
+            </div>
+            <button className="btn" onClick={resetTool}>← Back</button>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            {activeTool !== 'markdown' && activeTool !== 'ai-summarizer' && activeTool !== 'scan' && (
+              <div className="convert-drop" onClick={() => !processing && fileInputRef.current?.click()} style={{ cursor: processing ? 'wait' : 'pointer' }}>
+                {files.length === 0 ? (
+                  <><b>Pilih file {multipleFor() ? '(bisa banyak)' : ''}</b><span>{acceptFor().replace(/\./g, '').replace(/,/g, ' · ')}</span></>
+                ) : (
+                  <><b>{files.length} file dipilih</b><span style={{ display: 'block', marginTop: 4 }}>{files.slice(0, 3).map((f) => f.name).join(', ')}{files.length > 3 ? ` +${files.length - 3}` : ''}</span></>
+                )}
+                <input ref={fileInputRef} type="file" accept={acceptFor()} multiple={multipleFor()} hidden onChange={(e) => handleFileSelect(e.target.files)} />
+              </div>
+            )}
+
+            {activeTool === 'split' && files.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Dari halaman</label>
+                  <input type="number" min={1} className="setting-input" value={fromPage} onChange={(e) => setFromPage(Math.max(1, Number(e.target.value) || 1))} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Sampai</label>
+                  <input type="number" min={fromPage} className="setting-input" value={toPage} onChange={(e) => setToPage(Math.max(1, Number(e.target.value) || 1))} />
+                </div>
+              </div>
+            )}
+
+            {activeTool === 'rotate' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6 }}>Sudut</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {([90, 180, 270] as const).map((a) => (
+                    <button key={a} className={'xbtn' + (angle === a ? ' primary' : '')} style={{ flex: 1 }} onClick={() => setAngle(a)}>{a}°</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTool === 'watermark' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Teks</label>
+                <input className="setting-input" value={wmText} onChange={(e) => setWmText(e.target.value)} />
+              </div>
+            )}
+
+            {activeTool === 'crop' && (
+              <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                <div><label style={{ fontSize: 11, fontWeight: 700 }}>Top</label><input type="number" className="setting-input" value={cropT} onChange={(e) => setCropT(Number(e.target.value) || 0)} /></div>
+                <div><label style={{ fontSize: 11, fontWeight: 700 }}>Right</label><input type="number" className="setting-input" value={cropR} onChange={(e) => setCropR(Number(e.target.value) || 0)} /></div>
+                <div><label style={{ fontSize: 11, fontWeight: 700 }}>Bottom</label><input type="number" className="setting-input" value={cropB} onChange={(e) => setCropB(Number(e.target.value) || 0)} /></div>
+                <div><label style={{ fontSize: 11, fontWeight: 700 }}>Left</label><input type="number" className="setting-input" value={cropL} onChange={(e) => setCropL(Number(e.target.value) || 0)} /></div>
+              </div>
+            )}
+
+            {activeTool === 'organize' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Urutan (contoh: 3,1,2)</label>
+                <input className="setting-input" value={order} onChange={(e) => setOrder(e.target.value)} />
+              </div>
+            )}
+
+            {activeTool === 'edit-pdf' && (
+              <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                <input className="setting-input" value={editText} onChange={(e) => setEditText(e.target.value)} placeholder="Teks" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <input type="number" className="setting-input" value={editPage} onChange={(e) => setEditPage(Number(e.target.value))} placeholder="Hal" />
+                  <input type="number" className="setting-input" value={editX} onChange={(e) => setEditX(Number(e.target.value))} placeholder="X" />
+                  <input type="number" className="setting-input" value={editY} onChange={(e) => setEditY(Number(e.target.value))} placeholder="Y" />
+                </div>
+              </div>
+            )}
+
+            {activeTool === 'sign' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6 }}>Upload tanda tangan (PNG/JPG)</label>
+                <input type="file" accept="image/png,image/jpeg" onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => setSignatureDataUrl(r.result as string); r.readAsDataURL(f); }} />
+                {signatureDataUrl && <img src={signatureDataUrl} alt="" style={{ marginTop: 8, maxHeight: 100 }} />}
+              </div>
+            )}
+
+            {activeTool === 'ocr' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700 }}>Bahasa</label>
+                <select className="setting-input" value={ocrLang} onChange={(e) => setOcrLang(e.target.value)}>
+                  <option value="eng">English</option>
+                  <option value="ind">Indonesian</option>
+                  <option value="eng+ind">English + Indonesian</option>
+                  <option value="jpn">Japanese</option>
+                  <option value="chi_sim">Chinese</option>
+                  <option value="ara">Arabic</option>
+                  <option value="kor">Korean</option>
+                </select>
+              </div>
+            )}
+
+            {activeTool === 'translate' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700 }}>Target</label>
+                <select className="setting-input" value={translateLang} onChange={(e) => setTranslateLang(e.target.value)}>
+                  <option value="id">Indonesia</option>
+                  <option value="en">English</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ar">Arabic</option>
+                  <option value="es">Spanish</option>
+                </select>
+              </div>
+            )}
+
+            {activeTool === 'ai-summarizer' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Gemini API Key</label>
+                <input className="setting-input" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIza..." type="password" />
+              </div>
+            )}
+
+            {activeTool === 'forms' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700 }}>Field (koma)</label>
+                <input className="setting-input" value={formFields} onChange={(e) => setFormFields(e.target.value)} />
+              </div>
+            )}
+
+            {activeTool === 'markdown' && (
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>Markdown (kosongkan untuk PDF → Markdown)</label>
+                <textarea className="setting-input" rows={8} value={markdownInput} onChange={(e) => setMarkdownInput(e.target.value)} placeholder="# Judul..." />
+              </div>
+            )}
+
+            {activeTool === 'scan' && (
+              <div style={{ marginTop: 14, padding: 12, background: '#eef2ff', borderRadius: 10, fontSize: 12 }}>
+                Klik Process untuk buka kamera. Ambil foto, lalu Done.
+              </div>
+            )}
+
+            {processing && progress && (
+              <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#eef2ff', color: '#3b3dbf', fontSize: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div className="preview-spinner" style={{ width: 18, height: 18 }} />
+                {progress}
+              </div>
+            )}
+
+            {ocrResult && <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#f6f7fb', maxHeight: 200, overflowY: 'auto', fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{ocrResult.slice(0, 3000)}</div>}
+            {aiSummary && <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#f6f7fb', maxHeight: 200, overflowY: 'auto', fontSize: 12 }}>{aiSummary}</div>}
+
+            {compareResult.length > 0 && (
+              <div style={{ marginTop: 14, maxHeight: 400, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                {compareResult.map((c) => (
+                  <div key={c.page} style={{ padding: 8, borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Halaman {c.page}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {c.img1 ? <img src={c.img1} alt="" style={{ width: '100%', border: '1px solid #ccc' }} /> : <div style={{ color: '#999', fontSize: 11 }}>—</div>}
+                      {c.img2 ? <img src={c.img2} alt="" style={{ width: '100%', border: '1px solid #ccc' }} /> : <div style={{ color: '#999', fontSize: 11 }}>—</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {result && result.length > 0 && (
+              <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+                <strong style={{ fontSize: 13, color: '#065f46', display: 'block', marginBottom: 6 }}>✓ Selesai — {result.length} file</strong>
+                <ul style={{ margin: '6px 0 10px', paddingLeft: 18, fontSize: 11, color: '#166534', maxHeight: 120, overflowY: 'auto' }}>
+                  {result.slice(0, 10).map((r, i) => <li key={i}>{r.filename} ({(r.blob.size / 1024).toFixed(1)} KB)</li>)}
+                </ul>
+                <button className="btn primary" style={{ fontSize: 12, padding: '8px 16px' }} onClick={handleDownload}>⬇ Download</button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn" onClick={resetTool} disabled={processing}>Cancel</button>
+              <button className="btn primary" onClick={() => void run()} disabled={!canProcess()}>
+                {processing ? 'Processing...' : 'Process'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Tool list
   return (
     <div className={'modal-wrap' + (open ? ' open' : '')}>
       <div className="modal converter" style={{ width: 'min(680px, 100%)' }}>
@@ -68,39 +549,24 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
             <h3>Tools PDF</h3>
             <p style={{ marginBottom: 0 }}>Pilih alat PDF yang Anda butuhkan.</p>
           </div>
-          <button className="btn" style={{ flexShrink: 0 }} onClick={onClose}>{'\u00D7'}</button>
+          <button className="btn" style={{ flexShrink: 0 }} onClick={onClose}>×</button>
         </div>
 
-        <input
-          className="setting-input"
-          style={{ margin: '14px 0' }}
-          placeholder="Search tools..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <input className="setting-input" style={{ margin: '14px 0' }} placeholder="Search tools..." value={search} onChange={(e) => setSearch(e.target.value)} />
 
         <div className="modal-body">
           <div className="tools-grid">
             {filtered.map((tool) => (
-              <button
-                key={tool.id}
-                className="tool-card"
-                onClick={() => handleToolClick(tool)}
-              >
+              <button key={tool.id} className="tool-card" onClick={() => handleToolClick(tool)}>
                 <div className="tool-icon">{tool.icon}</div>
                 <div className="tool-info">
                   <strong>{tool.name}</strong>
                   <span>{tool.description}</span>
                 </div>
-                <span className="tool-badge">Soon</span>
               </button>
             ))}
           </div>
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#8a94a5', padding: 30, fontSize: 12 }}>
-              No tools found for "{search}"
-            </div>
-          )}
+          {filtered.length === 0 && <div style={{ textAlign: 'center', color: '#8a94a5', padding: 30, fontSize: 12 }}>No tools found</div>}
         </div>
       </div>
     </div>
