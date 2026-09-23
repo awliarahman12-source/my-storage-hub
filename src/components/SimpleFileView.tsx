@@ -383,32 +383,57 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
     if (!contextMenu) return;
     const file = contextMenu.file;
     setContextMenu(null);
+
+    // Ambil semua file yang ter-select (kalau ada). Kalau tidak ada, fallback ke file yang diklik.
+    const targets = sorted.filter((x) => selected.has(x.id));
+    const bulk = targets.length > 0 ? targets : [file];
+    const isBulk = bulk.length > 1;
+
     switch (action) {
-      case 'preview': handleRowClick(file); break;
-      case 'download': handleDownload(file); break;
-      case 'share-link': handleCreateShareLink(file); break;
-      case 'share-gdrive': setShareFiles([file]); break;
+      // ===== Single-only actions =====
+      case 'open': open(file); break;
       case 'rename': handleRename(file); break;
+      case 'details': showDetails(file); break;
+
+      // ===== Bulk-capable actions =====
+      case 'download': {
+        bulk.forEach((f) => handleDownload(f));
+        break;
+      }
+      case 'share': {
+        // Google Drive share — kalau bulk, buka modal untuk semua
+        setShareFiles(bulk);
+        break;
+      }
+      case 'share-link': {
+        // Create Share Link — bulk hanya bisa 1 file, ambil file pertama
+        if (isBulk) {
+          toast(`Buat share link 1 per 1. Mulai dari "${bulk[0].name}"...`);
+        }
+        handleCreateShareLink(bulk[0]);
+        break;
+      }
       case 'move': {
-        const targets = files.filter((x) => selected.has(x.id));
-        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'move');
+        void handleMoveOrCopy(bulk, 'move');
         break;
       }
       case 'copy': {
-        const targets = files.filter((x) => selected.has(x.id));
-        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'copy');
+        void handleMoveOrCopy(bulk, 'copy');
         break;
       }
-      case 'star': void handleStar(file); break;
-      case 'details': showDetails(file); break;
+      case 'star': {
+        // Star toggle — kalau bulk, toggle semua
+        for (const f of bulk) {
+          void handleStar(f);
+        }
+        break;
+      }
       case 'trash': {
-        const targets = files.filter((x) => selected.has(x.id));
-        setTrashConfirm(targets.length > 0 ? targets : [file]);
+        setTrashConfirm(bulk);
         break;
       }
     }
   };
-
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));

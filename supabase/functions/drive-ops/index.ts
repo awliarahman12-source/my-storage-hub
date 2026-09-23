@@ -1,4 +1,4 @@
-// Phase 14: DB search + Analytics + API Keys + Webhooks + Share Links + Cross-drive
+// Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
 import {
   getEnv,
   getSupabase,
@@ -274,6 +274,17 @@ function formatDate(d: string): string {
   try { return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return d; }
 }
 
+function computePreviewKind(type: string, mimeType: string): string {
+  if (type === "folder") return "folder";
+  if (type === "img") return "image";
+  if (type === "video") return "video";
+  if (type === "audio") return "audio";
+  if (type === "pdf") return "pdf";
+  if (mimeType.startsWith("application/vnd.google-apps.")) return "gdoc";
+  if (mimeType.startsWith("text/") || mimeType.includes("json") || mimeType.includes("xml") || mimeType.includes("markdown")) return "text";
+  return "unsupported";
+}
+
 function publicFile(file: DriveFile, node: StorageNodeRow) {
   const type = mapFileType(file.mimeType);
   return {
@@ -371,6 +382,17 @@ interface ShareRow {
   updated_at: string;
 }
 
+interface ShareItemRow {
+  id: string;
+  share_link_id: string;
+  node_id: string;
+  file_id: string;
+  file_name: string;
+  mime_type: string | null;
+  size: number;
+  created_at: string;
+}
+
 function publicShare(s: ShareRow) {
   return {
     id: s.id,
@@ -407,13 +429,6 @@ function isShareExpired(s: ShareRow): boolean {
   return new Date(s.expires_at) < new Date();
 }
 
-function checkSharePassword(s: ShareRow, password: string | null): boolean {
-  if (!s.password_hash) return true;
-  if (!password) return false;
-  // password_hash stored as SHA-256 hex of password
-  return false; // placeholder, verified async in endpoint
-}
-
 async function verifySharePw(s: ShareRow, password: string | null): Promise<boolean> {
   if (!s.password_hash) return true;
   if (!password) return false;
@@ -440,7 +455,6 @@ Deno.serve(async (req: Request) => {
     try {
       const supabase = getSupabase();
       const parts = path.split("/").filter(Boolean);
-      // /share/:token/... → parts = ['share', token, ...rest]
       const token = parts[1];
       const rest = parts.slice(2);
       if (!token) throw new HttpError(400, "Missing token");
@@ -485,13 +499,123 @@ Deno.serve(async (req: Request) => {
 
       // Files listing
       if (rest[0] === "files" && req.method === "GET") {
+        // ========== KIND = ITEMS (multi-file) ==========
+        if (share.kind === "items") {
+          const { data: items, error: itemsErr } = await supabase
+            .from("share_items")
+            .select("*")
+            .eq("share_link_id", share.id);
+
+          if (itemsErr) throw new Error("Failed to fetch share items");
+
+          // Comment counts
+          const fileIds = (items || []).map((it: ShareItemRow) => it.file_id);
+          const commentCounts: Record<string, number> = {};
+          if (fileIds.length > 0) {
+            const { data: comments } = await supabase
+              .from("share_comments")
+              .select("file_id")
+              .eq("share_link_id", share.id)
+              .in("file_id", fileIds);
+            if (comments) {
+              for (const c of comments) {
+                commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
+              }
+            }
+          }
+
+          // Node map
+          const allNodes = await getAllStorageNodes(supabase);
+          const nodeMap = new Map(allNodes.map((n) => [n.id, n]));
+
+          const files = (items || []).map((it: ShareItemRow) => {
+            const itemNode = nodeMap.get(it.node_id);
+            const mime = it.mime_type || "application/octet-stream";
+            const type = mapFileType(mime);
+            const canPreview =
+              type === "img" || type === "video" || type === "audio" || type === "pdf" ||
+              mime.startsWith("text/") || mime.includes("json") ||
+              mime.includes("xml") || mime.includes("markdown") ||
+              mime.startsWith("application/vnd.google-apps.");
+            const previewKind = computePreviewKind(type, mime);
+
+            const qs = new URLSearchParams();
+            qs.set("nodeId", it.node_id);
+            if (pw) qs.set("pw", pw);
+
+            return {
+              id: it.file_id,
+              nodeId: it.node_id,
+              name: it.file_name,
+              type,
+              mimeType: mime,
+              size: Number(it.size || 0),
+              sizeLabel: formatFileSize(Number(it.size || 0)),
+              modified: "—",
+              modifiedRaw: null,
+              isFolder: false,
+              canPreview,
+              previewKind,
+              driveName: itemNode?.display_name || itemNode?.email || "Drive",
+              thumbnailUrl: `/functions/v1/drive-ops/share/${share.token}/thumb/${it.file_id}?${qs.toString()}`,
+              streamUrl: `/functions/v1/drive-ops/share/${share.token}/stream/${it.file_id}?${qs.toString()}`,
+              downloadUrl: `/functions/v1/drive-ops/share/${share.token}/download/${it.file_id}?${qs.toString()}`,
+              comments: commentCounts[it.file_id] || 0,
+            };
+          });
+
+          return new Response(JSON.stringify({ files, breadcrumbs: [] }), {
+            headers: { ...ch, "Content-Type": "application/json" },
+          });
+        }
+
+        // ========== KIND = FILE (single file) ==========
+        if (share.kind === "file" && share.file_id) {
+          try {
+            const f = await getDriveFile(node, share.file_id);
+            const type = mapFileType(f.mimeType);
+            const canPreview =
+              type === "img" || type === "video" || type === "audio" || type === "pdf" ||
+              f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
+              f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+              f.mimeType.startsWith("application/vnd.google-apps.");
+            const previewKind = computePreviewKind(type, f.mimeType);
+
+            const fileObj = {
+              id: f.id,
+              nodeId: node.id,
+              name: f.name,
+              type,
+              mimeType: f.mimeType,
+              size: f.size ? Number(f.size) : 0,
+              sizeLabel: f.size ? formatFileSize(Number(f.size)) : "—",
+              modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
+              modifiedRaw: f.modifiedTime || null,
+              isFolder: false,
+              canPreview,
+              previewKind,
+              driveName: node.display_name || node.email,
+              thumbnailUrl: `/functions/v1/drive-ops/share/${share.token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              streamUrl: `/functions/v1/drive-ops/share/${share.token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              downloadUrl: `/functions/v1/drive-ops/share/${share.token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              comments: 0,
+            };
+
+            return new Response(JSON.stringify({ files: [fileObj], breadcrumbs: [] }), {
+              headers: { ...ch, "Content-Type": "application/json" },
+            });
+          } catch (err) {
+            throw new HttpError(404, "File not found");
+          }
+        }
+
+        // ========== KIND = FOLDER ==========
         const folderId = url.searchParams.get("path") || share.folder_id || "root";
         const query = folderId === "root" ? "'root' in parents and trashed = false" : `'${folderId}' in parents and trashed = false`;
         const result = await fetchDriveFiles(node, query, 200, undefined, "folder,name");
 
-        // Get comment counts
         const fileIds = (result.files || []).map((f: DriveFile) => f.id);
-        let commentCounts: Record<string, number> = {};
+        const commentCounts: Record<string, number> = {};
         if (fileIds.length > 0) {
           const { data: comments } = await supabase
             .from("share_comments")
@@ -507,16 +631,12 @@ Deno.serve(async (req: Request) => {
 
         const files = (result.files || []).map((f: DriveFile) => {
           const type = mapFileType(f.mimeType);
-          const canPreview = type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" || f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown") || f.mimeType.startsWith("application/vnd.google-apps.");
-          const previewKind =
-            type === "folder" ? "folder"
-            : type === "img" ? "image"
-            : type === "video" ? "video"
-            : type === "audio" ? "audio"
-            : type === "pdf" ? "pdf"
-            : f.mimeType.startsWith("application/vnd.google-apps.") ? "gdoc"
-            : (f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown")) ? "text"
-            : "unsupported";
+          const canPreview =
+            type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" ||
+            f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
+            f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+            f.mimeType.startsWith("application/vnd.google-apps.");
+          const previewKind = computePreviewKind(type, f.mimeType);
           return {
             id: f.id,
             name: f.name,
@@ -529,6 +649,7 @@ Deno.serve(async (req: Request) => {
             isFolder: type === "folder",
             canPreview,
             previewKind,
+            driveName: node.display_name || node.email,
             thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
@@ -536,7 +657,6 @@ Deno.serve(async (req: Request) => {
           };
         });
 
-        // Breadcrumbs — just simple for now
         const breadcrumbs: { id: string; name: string }[] = [];
         if (folderId && folderId !== share.folder_id && folderId !== "root") {
           try {
@@ -558,12 +678,10 @@ Deno.serve(async (req: Request) => {
       // Thumbnail proxy
       if (rest[0] === "thumb" && rest[1] && req.method === "GET") {
         const fileId = rest[1];
-        const token2 = await getValidAccessToken(node);
-        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&fields=thumbnailLink`, {
-          headers: { Authorization: `Bearer ${token2}` },
-        });
-        // Fallback: use thumbnailLink
-        const fileMeta = await getDriveFile(node, fileId);
+        const nodeIdParam = url.searchParams.get("nodeId");
+        const effectiveNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+        const token2 = await getValidAccessToken(effectiveNode);
+        const fileMeta = await getDriveFile(effectiveNode, fileId);
         if (fileMeta.thumbnailLink) {
           const imgRes = await fetch(fileMeta.thumbnailLink);
           if (imgRes.ok) {
@@ -573,7 +691,6 @@ Deno.serve(async (req: Request) => {
             return new Response(imgRes.body, { headers });
           }
         }
-        // Fallback: stream full file
         const fullRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { Authorization: `Bearer ${token2}` },
         });
@@ -587,8 +704,10 @@ Deno.serve(async (req: Request) => {
       // Stream (for video/image/audio/pdf/text preview)
       if (rest[0] === "stream" && rest[1] && req.method === "GET") {
         const fileId = rest[1];
-        const token2 = await getValidAccessToken(node);
-        const fileMeta = await getDriveFile(node, fileId);
+        const nodeIdParam = url.searchParams.get("nodeId");
+        const effectiveNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+        const token2 = await getValidAccessToken(effectiveNode);
+        const fileMeta = await getDriveFile(effectiveNode, fileId);
 
         // Google Docs/Sheets/Slides → export as PDF
         if (fileMeta.mimeType.startsWith("application/vnd.google-apps.")) {
@@ -608,7 +727,6 @@ Deno.serve(async (req: Request) => {
           return new Response(res.body, { headers: outHeaders });
         }
 
-        // Regular file → stream with range support
         const range = req.headers.get("Range");
         const headers: Record<string, string> = { Authorization: `Bearer ${token2}` };
         if (range) headers.Range = range;
@@ -626,11 +744,13 @@ Deno.serve(async (req: Request) => {
       // Download
       if (rest[0] === "download" && rest[1] && req.method === "GET") {
         const fileId = rest[1];
-        const fileMeta = await getDriveFile(node, fileId);
+        const nodeIdParam = url.searchParams.get("nodeId");
+        const effectiveNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+        const fileMeta = await getDriveFile(effectiveNode, fileId);
         if (share.max_downloads && share.download_count >= share.max_downloads) {
           throw new HttpError(429, "Download limit reached");
         }
-        const token2 = await getValidAccessToken(node);
+        const token2 = await getValidAccessToken(effectiveNode);
         const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { Authorization: `Bearer ${token2}` },
         });
@@ -666,7 +786,6 @@ Deno.serve(async (req: Request) => {
         const authorName = body.authorName || "Anonymous";
         const content = body.content;
         const pwParam = body.pw;
-        // Verify password again if provided in body
         if (share.password_hash && pwParam) {
           const ok = await verifySharePw(share, pwParam);
           if (!ok) throw new HttpError(401, "Invalid password");
@@ -740,29 +859,64 @@ Deno.serve(async (req: Request) => {
 
     if (path === "/shares" && req.method === "POST") {
       const body = await req.json();
-      const { name, kind, nodeId, folderId, fileId, role, password, expiresInDays, maxDownloads } = body;
-      if (!kind || !nodeId || !role) throw new HttpError(400, "kind, nodeId, role required");
-      if (kind !== "folder" && kind !== "file") throw new HttpError(400, "kind must be folder or file");
+      const { name, kind, nodeId, folderId, fileId, items, role, password, expiresInDays, maxDownloads } = body;
+
+      if (!role) throw new HttpError(400, "role required");
       if (!["viewer", "commenter", "editor"].includes(role)) throw new HttpError(400, "invalid role");
+
+      let shareKind: string = kind || "file";
+      let primaryNodeId: string | undefined = nodeId;
+
+      // Multi-item mode
+      if (Array.isArray(items) && items.length > 0) {
+        if (items.length === 1) {
+          shareKind = "file";
+          primaryNodeId = items[0].nodeId;
+        } else {
+          shareKind = "items";
+          primaryNodeId = items[0].nodeId;
+        }
+      }
+
+      if (!primaryNodeId) throw new HttpError(400, "nodeId or items required");
+      if (!["folder", "file", "items"].includes(shareKind)) throw new HttpError(400, "invalid kind");
 
       const token = generateShareToken();
       const password_hash = password ? await sha256Hex(password) : null;
       const expires_at = expiresInDays ? new Date(Date.now() + Number(expiresInDays) * 86400 * 1000).toISOString() : null;
 
-      const { data, error } = await supabase.from("share_links").insert({
+      const insertRow: Record<string, unknown> = {
         token,
         name: String(name || "Shared").substring(0, 100),
-        kind,
-        node_id: nodeId,
-        folder_id: kind === "folder" ? (folderId || null) : null,
-        file_id: kind === "file" ? (fileId || null) : null,
+        kind: shareKind,
+        node_id: primaryNodeId,
+        folder_id: shareKind === "folder" ? (folderId || null) : null,
+        file_id: shareKind === "file" ? (fileId || items?.[0]?.fileId || null) : null,
         role,
         password_hash,
         expires_at,
         max_downloads: maxDownloads || null,
-      }).select("*").single();
+      };
 
+      const { data, error } = await supabase.from("share_links").insert(insertRow).select("*").single();
       if (error) throw new Error("Failed to create share");
+
+      // Insert items (multi-file / multi-node)
+      if (Array.isArray(items) && items.length > 0) {
+        const rows = items.map((it: any) => ({
+          share_link_id: (data as ShareRow).id,
+          node_id: it.nodeId,
+          file_id: it.fileId,
+          file_name: it.fileName || it.name || "file",
+          mime_type: it.mimeType || null,
+          size: it.size || 0,
+        }));
+        const { error: itemsErr } = await supabase.from("share_items").insert(rows);
+        if (itemsErr) {
+          await supabase.from("share_links").delete().eq("id", (data as ShareRow).id);
+          throw new Error("Failed to save share items: " + itemsErr.message);
+        }
+      }
 
       const baseUrl = `${url.origin}/functions/v1/drive-ops/share/${token}`;
       return new Response(JSON.stringify({ share: publicShare(data as ShareRow), url: baseUrl }), { headers: { ...ch, "Content-Type": "application/json" } });
@@ -787,7 +941,7 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ share: publicShare(data as ShareRow) }), { headers: { ...ch, "Content-Type": "application/json" } });
     }
 
-    // ============ EXISTING ENDPOINTS (files, nodes, etc.) ============
+    // ============ EXISTING ENDPOINTS ============
 
     if (path === "/files" && req.method === "GET") {
       requireScope("files:read");

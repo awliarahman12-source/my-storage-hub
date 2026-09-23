@@ -21,7 +21,7 @@ function publicUrl(): string {
 }
 
 export type ShareRole = 'viewer' | 'commenter' | 'editor';
-export type ShareKind = 'folder' | 'file';
+export type ShareKind = 'folder' | 'file' | 'items';
 
 export interface ShareLink {
   id: string;
@@ -42,12 +42,21 @@ export interface ShareLink {
   updated_at: string;
 }
 
+export interface CreateShareItem {
+  nodeId: string;
+  fileId: string;
+  fileName: string;
+  mimeType?: string;
+  size?: number;
+}
+
 export interface CreateShareParams {
   name: string;
   kind: ShareKind;
-  nodeId: string;
+  nodeId?: string;
   folderId?: string;
   fileId?: string;
+  items?: CreateShareItem[];
   role: ShareRole;
   password?: string;
   expiresInDays?: number;
@@ -89,7 +98,10 @@ export async function revokeShare(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed (${res.status})`);
 }
 
-export async function updateShare(id: string, patch: Partial<{ role: ShareRole; expires_at: string | null; max_downloads: number | null }>): Promise<ShareLink> {
+export async function updateShare(
+  id: string,
+  patch: Partial<{ role: ShareRole; expires_at: string | null; max_downloads: number | null }>,
+): Promise<ShareLink> {
   const res = await fetch(`${url()}/shares/${id}`, {
     method: 'PATCH',
     headers: getHeaders(),
@@ -138,6 +150,7 @@ export async function verifySharePassword(token: string, password: string): Prom
 
 export interface ShareFile {
   id: string;
+  nodeId?: string;
   name: string;
   type: 'folder' | 'img' | 'video' | 'pdf' | 'audio' | 'zip' | 'file';
   mimeType: string;
@@ -148,6 +161,7 @@ export interface ShareFile {
   isFolder: boolean;
   canPreview?: boolean;
   previewKind?: 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'gdoc' | 'unsupported';
+  driveName?: string;
   thumbnailUrl: string | null;
   streamUrl: string | null;
   downloadUrl: string | null;
@@ -169,22 +183,28 @@ export async function fetchShareFolder(
   return await res.json();
 }
 
-export function shareThumbnailUrl(token: string, fileId: string, password?: string): string {
+export function shareThumbnailUrl(token: string, fileId: string, password?: string, nodeId?: string): string {
   const params = new URLSearchParams();
   if (password) params.set('pw', password);
-  return `${publicUrl()}/share/${token}/thumb/${fileId}?${params}`;
+  if (nodeId) params.set('nodeId', nodeId);
+  const qs = params.toString();
+  return `${publicUrl()}/share/${token}/thumb/${fileId}${qs ? `?${qs}` : ''}`;
 }
 
-export function shareStreamUrl(token: string, fileId: string, password?: string): string {
+export function shareStreamUrl(token: string, fileId: string, password?: string, nodeId?: string): string {
   const params = new URLSearchParams();
   if (password) params.set('pw', password);
-  return `${publicUrl()}/share/${token}/stream/${fileId}?${params}`;
+  if (nodeId) params.set('nodeId', nodeId);
+  const qs = params.toString();
+  return `${publicUrl()}/share/${token}/stream/${fileId}${qs ? `?${qs}` : ''}`;
 }
 
-export function shareDownloadUrl(token: string, fileId: string, password?: string): string {
+export function shareDownloadUrl(token: string, fileId: string, password?: string, nodeId?: string): string {
   const params = new URLSearchParams();
   if (password) params.set('pw', password);
-  return `${publicUrl()}/share/${token}/download/${fileId}?${params}`;
+  if (nodeId) params.set('nodeId', nodeId);
+  const qs = params.toString();
+  return `${publicUrl()}/share/${token}/download/${fileId}${qs ? `?${qs}` : ''}`;
 }
 
 // ============ Comments ============
@@ -209,7 +229,13 @@ export async function fetchComments(token: string, fileId: string, password?: st
   return (data.comments || []) as ShareComment[];
 }
 
-export async function postComment(token: string, fileId: string, authorName: string, content: string, password?: string): Promise<ShareComment> {
+export async function postComment(
+  token: string,
+  fileId: string,
+  authorName: string,
+  content: string,
+  password?: string,
+): Promise<ShareComment> {
   const res = await fetch(`${publicUrl()}/share/${token}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
@@ -221,9 +247,11 @@ export async function postComment(token: string, fileId: string, authorName: str
   return data.comment as ShareComment;
 }
 
-// ============ Helper: build share URL ============
+// ============ Helpers ============
 
 export function buildShareUrl(token: string, kind: ShareKind): string {
   const origin = window.location.origin;
-  return `${origin}/${kind === 'folder' ? 'g' : 's'}/${token}`;
+  // 'items' di-treat sama seperti 'folder' di URL (pakai /g/)
+  const pathPrefix = kind === 'file' ? 's' : 'g';
+  return `${origin}/${pathPrefix}/${token}`;
 }
