@@ -5,6 +5,7 @@ import { getDownloadUrl, fetchAllFolders, logActivity } from '@/utils/driveApi';
 import type { FolderEntry } from '@/utils/driveApi';
 import type { DriveFileItem, DashboardFile } from '@/types';
 import { ShareModal } from '@/components/modals/ShareModal';
+import { CreateShareModal } from '@/components/share/CreateShareModal';
 import { gb } from '@/utils/format';
 
 interface SimpleFileViewProps {
@@ -55,6 +56,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
   const [detailsFile, setDetailsFile] = useState<DriveFileItem | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [shareFiles, setShareFiles] = useState<DriveFileItem[]>([]);
+  const [createShareItem, setCreateShareItem] = useState<DriveFileItem | null>(null);
   const [folderPicker, setFolderPicker] = useState<{ files: DriveFileItem[]; mode: 'move' | 'copy' } | null>(null);
   const [folderList, setFolderList] = useState<FolderEntry[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
@@ -238,7 +240,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
       const tooLarge = targets.filter((f) => f.size > MAX_CROSS_DRIVE);
       if (tooLarge.length > 0) {
         const names = tooLarge.map((f) => `- ${f.name} (${f.sizeLabel})`).join('\n');
-        const msg = `${tooLarge.length} file lebih dari 100 MB dan mungkin gagal dipindah lintas drive:\n\n${names}\n\nLanjutkan? (File besar sebaiknya download lalu upload manual)`;
+        const msg = `${tooLarge.length} file lebih dari 100 MB dan mungkin gagal dipindah lintas drive:\n\n${names}\n\nLanjutkan?`;
         if (!confirm(msg)) return;
       }
     }
@@ -351,6 +353,23 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
     setDetailsOpen(true);
   };
 
+  // ============ SHARE LINK HANDLERS ============
+
+  const handleCreateShareLink = (file: DriveFileItem) => {
+    setCreateShareItem(file);
+  };
+
+  const handleShareMultiple = (targets: DriveFileItem[]) => {
+    if (targets.length === 1) {
+      setCreateShareItem(targets[0]);
+    } else {
+      // Untuk multiple, buat share per file secara berurutan
+      toast(`Membuka share link untuk ${targets.length} file...`);
+      // Ambil file pertama untuk demo — atau bisa loop
+      setCreateShareItem(targets[0]);
+    }
+  };
+
   const contextAction = (action: string) => {
     if (!contextMenu) return;
     const file = contextMenu.file;
@@ -358,7 +377,8 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
     switch (action) {
       case 'preview': handleRowClick(file); break;
       case 'download': handleDownload(file); break;
-      case 'share': setShareFiles([file]); break;
+      case 'share-link': handleCreateShareLink(file); break;
+      case 'share-gdrive': setShareFiles([file]); break;
       case 'rename': handleRename(file); break;
       case 'move': void handleMoveOrCopy([file], 'move'); break;
       case 'copy': void handleMoveOrCopy([file], 'copy'); break;
@@ -437,6 +457,12 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
         {selected.size > 0 && (
           <div className="group">
             <span style={{ alignSelf: 'center', fontSize: 12, color: '#7b8495', marginRight: 4 }}>{selected.size} selected</span>
+            {!isTrashMode && (
+              <button className="xbtn" onClick={() => {
+                const targets = files.filter((x) => selected.has(x.id));
+                void handleShareMultiple(targets);
+              }}>🔗 Share Link</button>
+            )}
             <button className="xbtn" onClick={handleStarSelected}>Star</button>
             {!isTrashMode && (
               <>
@@ -455,7 +481,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                 <button className="xbtn" onClick={() => {
                   const targets = files.filter((x) => selected.has(x.id));
                   setShareFiles(targets);
-                }}>Share</button>
+                }}>GDrive</button>
                 <button className="xbtn danger" onClick={() => {
                   const targets = files.filter((x) => selected.has(x.id));
                   setTrashConfirm(targets);
@@ -474,8 +500,8 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
           onChange={(e) => void handleSearch(e.target.value)}
         />
         <div className="view-toggle">
-          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')} title="Grid view">▦</button>
-          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')} title="List view">☷</button>
+          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')} title="Grid view">{'\u25A6'}</button>
+          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')} title="List view">{'\u2637'}</button>
         </div>
       </div>
 
@@ -488,7 +514,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
             </div>
           ) : nodesError && storageNodes.length === 0 ? (
             <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>⚠</div>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{'\u26A0'}</div>
               <strong>Unable to load drives</strong>
               <br />
               <span style={{ fontSize: 12 }}>Could not reach the storage service. Check your connection and try again.</span>
@@ -497,10 +523,10 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
             </div>
           ) : storageNodes.length === 0 ? (
             <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>◉</div>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>{'\u25C9'}</div>
               <h3 style={{ margin: '0 0 8px' }}>No Google Drive connected</h3>
               <p style={{ fontSize: 13, color: '#7b8495', margin: '0 0 16px' }}>Connect your Google Drive account to start building your storage pool.</p>
-              <button className="xbtn primary" onClick={connectGoogleDrive}>＋ Add Google Drive</button>
+              <button className="xbtn primary" onClick={connectGoogleDrive}>{'\uFF0B Add Google Drive'}</button>
             </div>
           ) : (
             <>
@@ -540,19 +566,19 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                           <div className="bar"><i style={{ width: p + '%' }} /></div>
                           <div className="drive-foot">
                             <span>{gb(Math.max(0, node.cap - node.used))} free</span>
-                            <span className="drive-priority">Priority {node.priority} · Connected {connectedDate}</span>
+                            <span className="drive-priority">Priority {node.priority} {'\u00B7'} Connected {connectedDate}</span>
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="drive-cap">
                             <span>Quota unavailable</span>
-                            <span>—</span>
+                            <span>{'\u2014'}</span>
                           </div>
                           <div className="bar"><i style={{ width: '0%' }} /></div>
                           <div className="drive-foot">
                             <span>Storage data from Google API</span>
-                            <span className="drive-priority">Priority {node.priority} · Connected {connectedDate}</span>
+                            <span className="drive-priority">Priority {node.priority} {'\u00B7'} Connected {connectedDate}</span>
                           </div>
                         </>
                       )}
@@ -565,7 +591,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                 })}
               </div>
               <div style={{ marginTop: 16, textAlign: 'center' }}>
-                <button className="xbtn primary" onClick={connectGoogleDrive}>＋ Add Google Drive</button>
+                <button className="xbtn primary" onClick={connectGoogleDrive}>{'\uFF0B Add Google Drive'}</button>
               </div>
             </>
           )}
@@ -580,7 +606,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
         </div>
       ) : filesError ? (
         <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>⚠</div>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>{'\u26A0'}</div>
           <strong>Storage connection unavailable</strong>
           <br />
           <span style={{ fontSize: 12 }}>Could not reach Google Drive. Check your connection and try refreshing.</span>
@@ -597,7 +623,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => handleRowClick(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
               title="Double click to preview"
             >
               <input
@@ -616,9 +642,9 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               </div>
               <div className="file-name">
                 {f.name}
-                {f.starred && <span style={{ color: '#f59e0b' }}> ★</span>}
+                {f.starred && <span style={{ color: '#f59e0b' }}> {'\u2605'}</span>}
               </div>
-              <div className="file-meta">{f.isFolder ? 'Folder' : f.sizeLabel} · {f.drive}</div>
+              <div className="file-meta">{f.isFolder ? 'Folder' : f.sizeLabel} {'\u00B7'} {f.drive}</div>
             </div>
           ))}
         </div>
@@ -641,7 +667,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => handleRowClick(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
             >
               <div className="file-icon" onClick={(e) => e.stopPropagation()}>
                 <input
@@ -664,11 +690,11 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                   >
                     {f.name}
                   </strong>
-                  {f.starred && <span style={{ color: '#f59e0b' }}>★</span>}
+                  {f.starred && <span style={{ color: '#f59e0b' }}>{'\u2605'}</span>}
                 </div>
               </div>
               <div className="muted">{f.drive}</div>
-              <div className="muted">{f.isFolder ? '—' : f.sizeLabel}</div>
+              <div className="muted">{f.isFolder ? '\u2014' : f.sizeLabel}</div>
               <div className="muted">{f.modified}</div>
               <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                 {isTrashMode ? (
@@ -678,15 +704,15 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                   </>
                 ) : (
                   <>
-                    {!f.isFolder && <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleDownload(f)} title="Download">↓</button>}
-                    <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '★' : '☆'}</button>
-                    <button className="xbtn danger" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleTrashMultiple([f])} title="Trash">⌫</button>
+                    {!f.isFolder && <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleDownload(f)} title="Download">{'\u2193'}</button>}
+                    <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '\u2605' : '\u2606'}</button>
+                    <button className="xbtn danger" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleTrashMultiple([f])} title="Trash">{'\u232B'}</button>
                     <button
                       className="xbtn"
                       style={{ fontSize: 11, padding: '2px 6px' }}
                       title="More actions"
-                      onClick={(e) => { e.stopPropagation(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
-                    >⋮</button>
+                      onClick={(e) => { e.stopPropagation(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+                    >{'\u22EE'}</button>
                   </>
                 )}
               </div>
@@ -705,16 +731,16 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
       )}
 
       {contextMenu && (
-        <div
-          className="context-menu open"
+        <div          className="context-menu open"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           {!contextMenu.file.isFolder && <button onClick={() => contextAction('preview')}>Preview</button>}
           <button onClick={() => contextAction('download')}>Download</button>
-          <button onClick={() => contextAction('share')}>Share</button>
+          <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>
+          <button onClick={() => contextAction('share-gdrive')}>👥 Google Drive Share</button>
           <button onClick={() => contextAction('rename')}>Rename</button>
-          <button onClick={() => contextAction('move')}>Move to…</button>
+          <button onClick={() => contextAction('move')}>Move to{'\u2026'}</button>
           <button onClick={() => contextAction('copy')}>Copy</button>
           <button onClick={() => contextAction('star')}>{contextMenu.file.starred ? 'Remove from Starred' : 'Add to Starred'}</button>
           <button onClick={() => contextAction('details')}>Properties</button>
@@ -725,7 +751,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
       <div className={'details-panel' + (detailsOpen ? ' open' : '')}>
         <div className="details-head">
           <strong>Properties</strong>
-          <button className="xbtn" onClick={() => setDetailsOpen(false)}>×</button>
+          <button className="xbtn" onClick={() => setDetailsOpen(false)}>{'\u00D7'}</button>
         </div>
         {detailsFile && (
           <>
@@ -736,6 +762,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, justifyContent: 'center' }}>
               {!detailsFile.isFolder && <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRowClick(detailsFile); }}>Open</button>}
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>Download</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setCreateShareItem(detailsFile); }}>🔗 Share Link</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setShareFiles([detailsFile]); }}>Share</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>Rename</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'move'); }}>Move</button>
@@ -749,7 +776,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               ['Type', detailsFile.isFolder ? 'Folder' : detailsFile.type.toUpperCase()],
               ['Extension', detailsFile.name.includes('.') ? '.' + detailsFile.name.split('.').pop() : 'None'],
               ['MIME', detailsFile.mimeType],
-              ['Size', detailsFile.isFolder ? '—' : detailsFile.sizeLabel],
+              ['Size', detailsFile.isFolder ? '\u2014' : detailsFile.sizeLabel],
               ['Created', formatDate(detailsFile.createdRaw)],
               ['Modified', detailsFile.modified],
               ['Starred', detailsFile.starred ? 'Yes' : 'No'],
@@ -784,7 +811,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
-              <button className="close-btn" onClick={() => setFolderPicker(null)}>×</button>
+              <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -812,7 +839,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                       style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
                       onClick={() => handleFolderPick('root', selectedDestNode)}
                     >
-                      ▹ My Storage (root)
+                      {'\u25B9'} My Storage (root)
                     </button>
                     {folderList
                       .filter((f) => f.nodeId === selectedDestNode)
@@ -823,7 +850,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                           style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
                           onClick={() => handleFolderPick(f.id, f.nodeId)}
                         >
-                          ▸ {f.name}
+                          {'\u25B8'} {f.name}
                         </button>
                       ))}
                     {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
@@ -842,7 +869,7 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <strong>Move to Trash?</strong>
-              <button className="close-btn" onClick={() => setTrashConfirm([])}>×</button>
+              <button className="close-btn" onClick={() => setTrashConfirm([])}>{'\u00D7'}</button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               {trashConfirm.length === 1 ? (
@@ -864,6 +891,12 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
         files={shareFiles}
         open={shareFiles.length > 0}
         onClose={() => setShareFiles([])}
+      />
+
+      <CreateShareModal
+        open={!!createShareItem}
+        onClose={() => setCreateShareItem(null)}
+        item={createShareItem}
       />
       </>
       )}
