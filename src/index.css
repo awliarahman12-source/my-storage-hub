@@ -703,3 +703,85 @@ body,
     padding-right: 50px;
   }
 }
+
+
+/* ==================== MODAL OVERLAY FIX (ALL MODALS) ==================== */
+
+/* Base overlay untuk semua modal */
+.modal-wrap,
+.modal-wrap.open {
+  background: rgba(10, 15, 30, 0.65) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Modal panel solid */
+.modal-wrap .modal,
+.modal-wrap .modal-panel {
+  background: var(--panel, #fff) !important;
+  color: var(--text, #172033) !important;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Dark theme */
+.dark-theme .modal-wrap,
+.dark-theme .modal-wrap.open {
+  background: rgba(0, 0, 0, 0.75) !important;
+}
+
+.dark-theme .modal-wrap .modal,
+.dark-theme .modal-wrap .modal-panel {
+  background: #121827 !important;
+  color: #edf1f8 !important;
+  border: 1px solid #273145 !important;
+}
+
+/* Nested modal (PreviewModal, folder picker, dll) — overlay lebih gelap */
+.modal-wrap.open[style*="z-index"] {
+  background: rgba(10, 15, 30, 0.75) !important;
+}
+
+/* Modal head styling (kalau belum ada) */
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line, #e8ecf3);
+}
+
+.modal-head strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.modal-head .close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--soft, #f6f7fb);
+  color: var(--text, #172033);
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  border: 0;
+  transition: background-color 0.15s ease;
+}
+
+.modal-head .close-btn:hover {
+  background: var(--hover, #f0f1ff);
+}
+
+.dark-theme .modal-head {
+  border-bottom-color: #273145;
+}
+
+.dark-theme .modal-head .close-btn {
+  background: #1a2030;
+  color: #edf1f8;
+}
+
+.dark-theme .modal-head .close-btn:hover {
+  background: #273145;
+}
