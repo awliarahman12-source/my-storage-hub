@@ -760,4 +760,113 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               {selected.size} file dipilih
             </div>
           )}
-          <button onClick={() => contextAction('open')}>Open
+          <button onClick={() => contextAction('open')}>Open</button>
+          <button onClick={() => contextAction('download')}>Download</button>
+          <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>
+          <button onClick={() => contextAction('share')}>👥 Google Drive Share</button>
+          <button onClick={() => contextAction('rename')}>Rename</button>
+          <button onClick={() => contextAction('move')}>Move to{'\u2026'}</button>
+          <button onClick={() => contextAction('copy')}>Copy</button>
+          <button onClick={() => contextAction('star')}>{contextMenu.file.starred ? 'Remove from Starred' : 'Add to Starred'}</button>
+          <button onClick={() => contextAction('details')}>Properties</button>
+          <button className="danger" onClick={() => contextAction('trash')}>Delete</button>
+        </div>
+      )}
+
+      {folderPicker && (
+        <div className="modal-wrap open" onClick={() => setFolderPicker(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-head">
+              <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
+              <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
+            </div>
+            <div style={{ padding: '16px 20px' }}>
+              <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
+                {folderPicker.files.length === 1
+                  ? folderPicker.files[0].name
+                  : `${folderPicker.files.length} files`} → {folderPicker.mode === 'move' ? 'move' : 'copy'} to:
+              </div>
+              <select
+                className="setting-input"
+                style={{ width: '100%', padding: '8px 12px', marginBottom: 12 }}
+                value={selectedDestNode}
+                onChange={(e) => setSelectedDestNode(e.target.value)}
+              >
+                {storageNodes.filter((n) => n.status === 'connected').map((n) => (
+                  <option key={n.id} value={n.id}>{n.displayName || n.email || n.id}</option>
+                ))}
+              </select>
+              <div style={{ maxHeight: 280, overflowY: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
+                {loadingFolders ? (
+                  <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20 }}>Loading folders...</div>
+                ) : (
+                  <>
+                    <button
+                      className="xbtn"
+                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                      onClick={() => handleFolderPick('root', selectedDestNode)}
+                    >
+                      {'\u25B9'} My Storage (root)
+                    </button>
+                    {folderList
+                      .filter((f) => f.nodeId === selectedDestNode)
+                      .map((f) => (
+                        <button
+                          key={f.id}
+                          className="xbtn"
+                          style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                          onClick={() => handleFolderPick(f.id, f.nodeId)}
+                        >
+                          {'\u25B8'} {f.name}
+                        </button>
+                      ))}
+                    {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
+                      <div style={{ textAlign: 'center', color: '#9da7b8', padding: 20, fontSize: 12 }}>No folders in this drive. Using root.</div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trashConfirm.length > 0 && (
+        <div className="modal-wrap open" onClick={() => setTrashConfirm([])}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div className="modal-head">
+              <strong>Move to Trash?</strong>
+              <button className="close-btn" onClick={() => setTrashConfirm([])}>{'\u00D7'}</button>
+            </div>
+            <div style={{ padding: '16px 20px' }}>
+              {trashConfirm.length === 1 ? (
+                <p style={{ margin: '0 0 8px' }}>Move <strong>{trashConfirm[0].name}</strong> to trash?</p>
+              ) : (
+                <p style={{ margin: '0 0 8px' }}>Move <strong>{trashConfirm.length} files</strong> to trash?</p>
+              )}
+              <p style={{ fontSize: 12, color: '#7b8495', margin: '0 0 16px' }}>You can restore them later from the Trash view.</p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="xbtn" onClick={() => setTrashConfirm([])}>Cancel</button>
+                <button className="xbtn danger" onClick={() => { void handleTrashMultiple(trashConfirm); setTrashConfirm([]); }}>Move to Trash</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ShareModal
+        files={shareFiles}
+        open={shareFiles.length > 0}
+        onClose={() => setShareFiles([])}
+      />
+
+      <CreateShareModal
+        open={createShareItems.length > 0}
+        onClose={() => setCreateShareItems([])}
+        items={createShareItems}
+      />
+    </>
+  );
+}
+
+export default FileExplorer;
