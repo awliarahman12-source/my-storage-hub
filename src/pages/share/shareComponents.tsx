@@ -119,7 +119,22 @@ function ShareTile({
   isSelected: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
-  const thumbUrl = file.isFolder ? null : file.thumbnailUrl;
+  const [failed, setFailed] = useState(false);
+  const thumbUrl = file.thumbnailUrl;
+
+  const renderIcon = () => {
+    switch (file.previewKind) {
+      case 'folder': return <div style={{ fontSize: 48 }}>📁</div>;
+      case 'video': return <div style={{ fontSize: 40 }}>🎬</div>;
+      case 'audio': return <div style={{ fontSize: 40 }}>🎵</div>;
+      case 'pdf': return <div style={{ fontSize: 40 }}>📄</div>;
+      case 'gdoc': return <div style={{ fontSize: 40 }}>📝</div>;
+      case 'text': return <div style={{ fontSize: 40 }}>📃</div>;
+      default:
+        if (file.type === 'zip') return <div style={{ fontSize: 40 }}>🗜️</div>;
+        return <div style={{ fontSize: 40, color: 'rgba(255,255,255,.4)' }}>📄</div>;
+    }
+  };
 
   return (
     <button
@@ -128,26 +143,22 @@ function ShareTile({
       onContextMenu={(e) => { e.preventDefault(); onDetails(); }}
     >
       <div className="share-tile-thumb">
-        {file.isFolder ? (
-          <div style={{ fontSize: 48 }}>📁</div>
-        ) : thumbUrl ? (
+        {thumbUrl && !failed ? (
           <>
             {!loaded && <div className="share-skeleton" />}
             <img
               src={thumbUrl}
               alt={file.name}
               onLoad={() => setLoaded(true)}
+              onError={() => setFailed(true)}
               loading="lazy"
               style={{ opacity: loaded ? 1 : 0 }}
             />
           </>
         ) : (
-          <div style={{ fontSize: 40, color: 'rgba(255,255,255,.4)' }}>📄</div>
+          renderIcon()
         )}
-        {file.isFolder && file.comments > 0 && (
-          <span className="share-badge-comments">💬 {file.comments}</span>
-        )}
-        {!file.isFolder && file.comments > 0 && (
+        {file.comments > 0 && (
           <span className="share-badge-comments">💬 {file.comments}</span>
         )}
       </div>
@@ -173,6 +184,22 @@ export function ShareList({
   onOpenDetails: (f: ShareFile) => void;
   detailsFileId?: string;
 }) {
+  const renderIcon = (f: ShareFile) => {
+    if (f.thumbnailUrl) {
+      return <img src={f.thumbnailUrl} alt="" loading="lazy" />;
+    }
+    switch (f.previewKind) {
+      case 'folder': return '📁';
+      case 'video': return '🎬';
+      case 'audio': return '🎵';
+      case 'pdf': return '📄';
+      case 'gdoc': return '📝';
+      case 'text': return '📃';
+      case 'image': return '🖼️';
+      default: return f.type === 'zip' ? '🗜️' : '📄';
+    }
+  };
+
   return (
     <div className="share-content">
       <div className="share-list">
@@ -183,11 +210,7 @@ export function ShareList({
             onClick={() => onItemClick(f)}
             onContextMenu={(e) => { e.preventDefault(); onOpenDetails(f); }}
           >
-            <div className="share-list-icon">
-              {f.isFolder ? '📁' : f.thumbnailUrl ? (
-                <img src={f.thumbnailUrl} alt="" loading="lazy" />
-              ) : '📄'}
-            </div>
+            <div className="share-list-icon">{renderIcon(f)}</div>
             <div className="share-list-info">
               <strong>{f.name}</strong>
               <small>{f.isFolder ? 'Folder' : f.sizeLabel}{f.comments > 0 ? ` · 💬 ${f.comments}` : ''}</small>
@@ -201,7 +224,7 @@ export function ShareList({
 }
 
 // ============================================================
-// LIGHTBOX
+// LIGHTBOX — Preview semua tipe file
 // ============================================================
 
 export function ShareLightbox({
@@ -236,6 +259,76 @@ export function ShareLightbox({
   const streamUrl = shareStreamUrl(token, active.id, password);
   const downloadUrl = shareDownloadUrl(token, active.id, password);
 
+  const renderStage = () => {
+    if (active.previewKind === 'video') {
+      return (
+        <video
+          src={streamUrl}
+          controls
+          autoPlay
+          playsInline
+          style={{ maxWidth: '100%', maxHeight: '100%', background: '#000' }}
+        />
+      );
+    }
+
+    if (active.previewKind === 'audio') {
+      return (
+        <div style={{ textAlign: 'center', padding: 40, width: '100%' }}>
+          <div style={{ fontSize: 80, marginBottom: 20 }}>🎵</div>
+          <audio src={streamUrl} controls style={{ width: '100%', maxWidth: 480 }} />
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,.6)', marginTop: 12 }}>
+            {active.name}
+          </div>
+        </div>
+      );
+    }
+
+    if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
+      return (
+        <iframe
+          src={streamUrl}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            background: '#fff',
+            borderRadius: 6,
+          }}
+          title={active.name}
+        />
+      );
+    }
+
+    if (active.previewKind === 'text') {
+      return <TextPreview url={streamUrl} name={active.name} />;
+    }
+
+    if (active.previewKind === 'image' || active.type === 'img') {
+      return (
+        <img
+          src={streamUrl}
+          alt={active.name}
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+        />
+      );
+    }
+
+    // Unsupported / fallback
+    return (
+      <div style={{ textAlign: 'center', padding: 40, color: 'rgba(255,255,255,.5)' }}>
+        <div style={{ fontSize: 80, marginBottom: 16 }}>📄</div>
+        <div style={{ fontSize: 14, marginBottom: 8 }}>Preview not available</div>
+        <div style={{ fontSize: 12, marginBottom: 20, color: 'rgba(255,255,255,.35)' }}>
+          {active.mimeType}
+        </div>
+        <a href={downloadUrl} download className="share-btn primary">
+          ⬇ Download
+        </a>
+      </div>
+    );
+  };
+
   return (
     <div className="share-lightbox">
       <div className="share-lb-head">
@@ -259,11 +352,8 @@ export function ShareLightbox({
       </div>
 
       <div className="share-lb-stage">
-        {active.type === 'video' ? (
-          <video src={streamUrl} controls autoPlay playsInline style={{ maxWidth: '100%', maxHeight: '100%' }} />
-        ) : (
-          <img src={streamUrl} alt={active.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-        )}
+        {renderStage()}
+
         <button
           className="share-lb-arrow left"
           onClick={() => activeIndex > 0 && onChange(activeIndex - 1)}
@@ -285,6 +375,81 @@ export function ShareLightbox({
         </a>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// TEXT PREVIEW — fetch & tampilkan sebagai <pre>
+// ============================================================
+
+function TextPreview({ url, name }: { url: string; name: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+    setContent(null);
+
+    fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed (${r.status})`);
+        return r.text();
+      })
+      .then((t) => {
+        if (cancelled) return;
+        setContent(t.length > 100000 ? t.slice(0, 100000) + '\n\n... (truncated)' : t);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError(true);
+        setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div style={{ color: 'rgba(255,255,255,.5)', padding: 40, fontSize: 13 }}>
+        Loading {name}...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ color: 'rgba(255,255,255,.5)', padding: 40, fontSize: 13 }}>
+        Failed to load text content
+      </div>
+    );
+  }
+
+  return (
+    <pre
+      style={{
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        maxWidth: '100%',
+        maxHeight: '100%',
+        overflow: 'auto',
+        padding: 20,
+        background: '#0d111b',
+        borderRadius: 8,
+        fontSize: 13,
+        lineHeight: 1.6,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        color: '#e2e8f0',
+        margin: 0,
+        textAlign: 'left',
+        minWidth: 300,
+      }}
+    >
+      {content}
+    </pre>
   );
 }
 
@@ -311,7 +476,7 @@ export function ShareDetailsPanel({
 
   const downloadUrl = shareDownloadUrl(token, file.id, password);
   const thumbUrl = file.thumbnailUrl;
-  const streamUrl = file.type === 'video' ? shareStreamUrl(token, file.id, password) : null;
+  const streamUrl = shareStreamUrl(token, file.id, password);
 
   const submit = async () => {
     if (!commentText.trim()) return;
@@ -320,6 +485,31 @@ export function ShareDetailsPanel({
     await onPostComment(commentText.trim(), authorName.trim());
     setCommentText('');
     setPosting(false);
+  };
+
+  const renderPreview = () => {
+    if (file.previewKind === 'video') {
+      return <video src={streamUrl} controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />;
+    }
+    if (file.previewKind === 'audio') {
+      return <div style={{ fontSize: 64 }}>🎵</div>;
+    }
+    if (file.previewKind === 'pdf' || file.previewKind === 'gdoc') {
+      return <div style={{ fontSize: 64 }}>📄</div>;
+    }
+    if (file.previewKind === 'text') {
+      return <div style={{ fontSize: 64 }}>📃</div>;
+    }
+    if (thumbUrl) {
+      return <img src={thumbUrl} alt="" />;
+    }
+    if (file.isFolder) {
+      return <div style={{ fontSize: 64 }}>📁</div>;
+    }
+    if (file.type === 'zip') {
+      return <div style={{ fontSize: 64 }}>🗜️</div>;
+    }
+    return <div style={{ fontSize: 64 }}>📄</div>;
   };
 
   return (
@@ -332,15 +522,7 @@ export function ShareDetailsPanel({
         </div>
         <div className="share-details-body">
           <div className="share-details-preview">
-            {streamUrl ? (
-              <video src={streamUrl} controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-            ) : thumbUrl ? (
-              <img src={thumbUrl} alt="" />
-            ) : file.isFolder ? (
-              <div style={{ fontSize: 64 }}>📁</div>
-            ) : (
-              <div style={{ fontSize: 64 }}>📄</div>
-            )}
+            {renderPreview()}
           </div>
           <div>
             <div className="share-details-name">{file.name}</div>

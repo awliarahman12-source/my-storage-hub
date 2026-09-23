@@ -507,6 +507,16 @@ Deno.serve(async (req: Request) => {
 
         const files = (result.files || []).map((f: DriveFile) => {
           const type = mapFileType(f.mimeType);
+          const canPreview = type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" || f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown") || f.mimeType.startsWith("application/vnd.google-apps.");
+          const previewKind =
+            type === "folder" ? "folder"
+            : type === "img" ? "image"
+            : type === "video" ? "video"
+            : type === "audio" ? "audio"
+            : type === "pdf" ? "pdf"
+            : f.mimeType.startsWith("application/vnd.google-apps.") ? "gdoc"
+            : (f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown")) ? "text"
+            : "unsupported";
           return {
             id: f.id,
             name: f.name,
@@ -517,6 +527,8 @@ Deno.serve(async (req: Request) => {
             modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
             modifiedRaw: f.modifiedTime || null,
             isFolder: type === "folder",
+            canPreview,
+            previewKind,
             thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${share.token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
@@ -572,20 +584,42 @@ Deno.serve(async (req: Request) => {
         return new Response(fullRes.body, { headers });
       }
 
-      // Stream (for video/image/audio preview)
+      // Stream (for video/image/audio/pdf/text preview)
       if (rest[0] === "stream" && rest[1] && req.method === "GET") {
         const fileId = rest[1];
         const token2 = await getValidAccessToken(node);
+        const fileMeta = await getDriveFile(node, fileId);
+
+        // Google Docs/Sheets/Slides → export as PDF
+        if (fileMeta.mimeType.startsWith("application/vnd.google-apps.")) {
+          if (fileMeta.mimeType === "application/vnd.google-apps.folder") {
+            throw new HttpError(400, "Cannot preview folder");
+          }
+          const exportType = "application/pdf";
+          const res = await fetchWithRetry(
+            `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportType)}`,
+            { headers: { Authorization: `Bearer ${token2}` } },
+          );
+          if (!res.ok) throw new HttpError(res.status, "Export failed");
+          const outHeaders = new Headers(ch);
+          outHeaders.set("Content-Type", exportType);
+          outHeaders.set("Content-Disposition", `inline; filename="${fileMeta.name}.pdf"`);
+          outHeaders.set("Cache-Control", "public, max-age=3600");
+          return new Response(res.body, { headers: outHeaders });
+        }
+
+        // Regular file → stream with range support
         const range = req.headers.get("Range");
         const headers: Record<string, string> = { Authorization: `Bearer ${token2}` };
         if (range) headers.Range = range;
         const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
         if (!res.ok) throw new HttpError(res.status, "Failed");
         const outHeaders = new Headers(ch);
-        outHeaders.set("Content-Type", res.headers.get("Content-Type") || "application/octet-stream");
+        outHeaders.set("Content-Type", fileMeta.mimeType || res.headers.get("Content-Type") || "application/octet-stream");
         if (res.headers.get("Content-Length")) outHeaders.set("Content-Length", res.headers.get("Content-Length")!);
         if (res.headers.get("Content-Range")) outHeaders.set("Content-Range", res.headers.get("Content-Range")!);
         outHeaders.set("Accept-Ranges", "bytes");
+        outHeaders.set("Cache-Control", "public, max-age=3600");
         return new Response(res.body, { status: res.status, headers: outHeaders });
       }
 

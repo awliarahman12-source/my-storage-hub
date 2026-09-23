@@ -146,6 +146,8 @@ export interface ShareFile {
   modified: string;
   modifiedRaw: string | null;
   isFolder: boolean;
+  canPreview?: boolean;
+  previewKind?: 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'gdoc' | 'unsupported';
   thumbnailUrl: string | null;
   streamUrl: string | null;
   downloadUrl: string | null;
