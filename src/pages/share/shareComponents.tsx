@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PdfPreview } from '@/components/preview/PdfPreview';
 import {
   shareThumbnailUrl,
   shareStreamUrl,
@@ -284,21 +285,9 @@ export function ShareLightbox({
       );
     }
 
-    if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
-      return (
-        <iframe
-          src={streamUrl}
-          style={{
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            background: '#fff',
-            borderRadius: 6,
-          }}
-          title={active.name}
-        />
-      );
-    }
+if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
+  return <PdfPreview url={streamUrl} />;
+}
 
     if (active.previewKind === 'text') {
       return <TextPreview url={streamUrl} name={active.name} />;
