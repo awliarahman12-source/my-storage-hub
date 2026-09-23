@@ -4,6 +4,7 @@ import { V3Icon } from '@/components/FileIcon';
 import { getDownloadUrl, fetchFolders, fetchAllFolders, logActivity } from '@/utils/driveApi';
 import type { FolderEntry } from '@/utils/driveApi';
 import { ShareModal } from '@/components/modals/ShareModal';
+import { CreateShareModal } from '@/components/share/CreateShareModal';
 import type { DriveFileItem } from '@/types';
 
 type SortMode = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest' | 'size-largest' | 'size-smallest' | 'type';
@@ -70,6 +71,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem[]>([]);
   const [shareFiles, setShareFiles] = useState<DriveFileItem[]>([]);
+  const [createShareItem, setCreateShareItem] = useState<DriveFileItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -292,8 +294,16 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     setSelected(new Set());
   };
 
+  // ============ SHARE HANDLERS ============
+
+  // Buka modal Google Drive permission (existing)
   const handleShare = (file: DriveFileItem) => {
     setShareFiles([file]);
+  };
+
+  // Buka modal Create Share Link (baru)
+  const handleCreateShareLink = (file: DriveFileItem) => {
+    setCreateShareItem(file);
   };
 
   const handleStar = async (file: DriveFileItem) => {
@@ -348,7 +358,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     switch (action) {
       case 'open': open(file); break;
       case 'download': handleDownload(file); break;
-      case 'share': handleShare(file); break;
+      case 'share': handleShare(file); break;                    // Google Drive permission
+      case 'share-link': handleCreateShareLink(file); break;     // Share Link baru
       case 'rename': handleRename(file); break;
       case 'move': void handleMoveOrCopy([file], 'move'); break;
       case 'copy': void handleMoveOrCopy([file], 'copy'); break;
@@ -411,7 +422,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         <button onClick={() => { navigateToRoot(); setSelected(new Set()); setSearchResults(null); setSearchQuery(''); }}>My Storage</button>
         {breadcrumbs.map((x, i) => (
           <span key={x.id}>
-            <span> › </span>
+            <span> {'\u203A'} </span>
             <button onClick={() => { navigateToBreadcrumb(i); setSelected(new Set()); setSearchResults(null); setSearchQuery(''); }}>{x.name}</button>
           </span>
         ))}
@@ -433,9 +444,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               {selected.size > 0 && selected.size < sorted.length ? 'Partial' : selected.size === sorted.length ? 'All' : 'None'}
             </label>
           )}
-          <button className="xbtn primary" onClick={handleNewFolder}>＋ New</button>
+          <button className="xbtn primary" onClick={handleNewFolder}>{'\uFF0B'} New</button>
           <button className="xbtn" onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }} disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</button>
-          <button className="xbtn" onClick={handleRefresh}>↻ Refresh</button>
+          <button className="xbtn" onClick={handleRefresh}>{'\u21BB'} Refresh</button>
         </div>
         {selected.size > 0 && (
           <div className="group">
@@ -443,7 +454,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               targets.forEach((f) => handleDownload(f));
-            }}>↓ Download</button>
+            }}>{'\u2193'} Download</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'move');
@@ -479,8 +490,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           ))}
         </select>
         <div className="view-toggle">
-          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')}>▦</button>
-          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')}>☷</button>
+          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')}>{'\u25A6'}</button>
+          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')}>{'\u2637'}</button>
         </div>
       </div>
 
@@ -512,12 +523,12 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       ) : filesError ? (
         <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>⚠</div>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>{'\u26A0'}</div>
           <strong>Storage connection unavailable</strong>
           <br />
           <span style={{ fontSize: 12 }}>Could not reach Google Drive. Check your connection and try refreshing.</span>
           <br />
-          <button className="xbtn" style={{ marginTop: 10 }} onClick={handleRefresh}>↻ Retry</button>
+          <button className="xbtn" style={{ marginTop: 10 }} onClick={handleRefresh}>{'\u21BB'} Retry</button>
         </div>
       ) : sorted.length === 0 ? (
         <div className="upload-drop" style={{ display: 'block' }}>
@@ -545,7 +556,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
               title="Double click to open"
             >
               <input
@@ -589,7 +600,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 360), file: f }); }}
+              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
             >
               <div className="file-icon" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input
@@ -610,11 +621,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               <div className="muted">{f.modified}</div>
               <div className="muted">{f.drive}</div>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-                <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '★' : '☆'}</button>
+                <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '\u2605' : '\u2606'}</button>
                 <button
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', fontSize: 16 }}
                   onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, file: f }); }}
-                >⋮</button>
+                >{'\u22EE'}</button>
               </div>
             </div>
           ))}
@@ -630,10 +641,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
+      {/* Properties Panel */}
       <div className={'details-panel' + (detailsOpen ? ' open' : '')}>
         <div className="details-head">
           <strong>Properties</strong>
-          <button className="xbtn" onClick={() => setDetailsOpen(false)}>×</button>
+          <button className="xbtn" onClick={() => setDetailsOpen(false)}>{'\u00D7'}</button>
         </div>
         {detailsFile && (
           <>
@@ -644,6 +656,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, justifyContent: 'center' }}>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { open(detailsFile); }}>Open</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>Download</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleCreateShareLink(detailsFile)}>🔗 Share Link</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleShare(detailsFile)}>Share</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>Rename</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'move'); }}>Move</button>
@@ -687,6 +700,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         )}
       </div>
 
+      {/* Context Menu */}
       {contextMenu && (
         <div
           className="context-menu open"
@@ -695,9 +709,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         >
           <button onClick={() => contextAction('open')}>Open / Preview</button>
           <button onClick={() => contextAction('download')}>Download</button>
-          <button onClick={() => contextAction('share')}>Share</button>
+          <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>
+          <button onClick={() => contextAction('share')}>👥 Google Drive Share</button>
           <button onClick={() => contextAction('rename')}>Rename</button>
-          <button onClick={() => contextAction('move')}>Move to…</button>
+          <button onClick={() => contextAction('move')}>Move to{'\u2026'}</button>
           <button onClick={() => contextAction('copy')}>Copy</button>
           <button onClick={() => contextAction('star')}>{contextMenu.file.starred ? 'Remove from Starred' : 'Add to Starred'}</button>
           <button onClick={() => contextAction('details')}>Properties</button>
@@ -705,12 +720,13 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
+      {/* Folder Picker Modal */}
       {folderPicker && (
         <div className="modal-wrap open" onClick={() => setFolderPicker(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
-              <button className="close-btn" onClick={() => setFolderPicker(null)}>×</button>
+              <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -738,7 +754,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                       style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
                       onClick={() => handleFolderPick('root', selectedDestNode)}
                     >
-                      ▹ My Storage (root)
+                      {'\u25B9'} My Storage (root)
                     </button>
                     {folderList
                       .filter((f) => f.nodeId === selectedDestNode)
@@ -749,7 +765,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                           style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
                           onClick={() => handleFolderPick(f.id, f.nodeId)}
                         >
-                          ▸ {f.name}
+                          {'\u25B8'} {f.name}
                         </button>
                       ))}
                     {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
@@ -763,12 +779,13 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
+      {/* Trash Confirmation Modal */}
       {trashConfirm.length > 0 && (
         <div className="modal-wrap open" onClick={() => setTrashConfirm([])}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <strong>Move to Trash?</strong>
-              <button className="close-btn" onClick={() => setTrashConfirm([])}>×</button>
+              <button className="close-btn" onClick={() => setTrashConfirm([])}>{'\u00D7'}</button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               {trashConfirm.length === 1 ? (
@@ -792,10 +809,18 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
+      {/* Google Drive Share Modal (existing) */}
       <ShareModal
         files={shareFiles}
         open={shareFiles.length > 0}
         onClose={() => setShareFiles([])}
+      />
+
+      {/* NEW: Create Share Link Modal */}
+      <CreateShareModal
+        open={!!createShareItem}
+        onClose={() => setCreateShareItem(null)}
+        item={createShareItem}
       />
     </>
   );
