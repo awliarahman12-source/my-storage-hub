@@ -478,7 +478,6 @@ Deno.serve(async (req: Request) => {
 
       // Increment view count on info access (roughly)
       if (rest.length === 0 || rest[0] === "files") {
-        void supabase.rpc("noop").catch(() => {});
         void supabase.from("share_links").update({ view_count: share.view_count + 1 }).eq("id", share.id);
       }
 
