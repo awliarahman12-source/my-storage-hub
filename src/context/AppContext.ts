@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { Drive, DashboardFile, ExplorerFile, Theme, ViewName, ApiLog, RoutingMode, StorageNode, DriveFileItem, UploadSession, StoragePoolSummary, BreadcrumbItem } from '@/types';
 import type { PasscodeError, FileVersion } from '@/utils/driveApi';
+import type { ShareLink, CreateShareParams, ShareRole } from '@/utils/shareApi';
 
 export interface AppContextValue {
   // Theme
@@ -107,6 +108,14 @@ export interface AppContextValue {
   // Global search (Phase 11 - D)
   globalSearchOpen: boolean;
   setGlobalSearchOpen: (open: boolean) => void;
+
+  // Share Links (Phase 14)
+  shareLinks: ShareLink[];
+  loadingShares: boolean;
+  refreshShares: () => Promise<void>;
+  createShareLink: (params: CreateShareParams) => Promise<{ share: ShareLink; url: string }>;
+  revokeShareLink: (id: string) => Promise<void>;
+  updateShareLink: (id: string, patch: Partial<{ role: ShareRole }>) => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

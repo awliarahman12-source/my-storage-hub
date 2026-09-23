@@ -19,8 +19,15 @@ import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
 import { ShortcutsHelpModal } from '@/components/modals/ShortcutsHelpModal';
 import { FloatingUploadQueue } from '@/components/FloatingUploadQueue';
 import { FolderSyncView } from '@/components/FolderSyncView';
+import { ShareManagementView } from '@/components/share/ShareManagementView';
+import { SharePage } from '@/pages/share/SharePage';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import type { DashboardFile, ExplorerFile, DriveFileItem } from '@/types';
+
+function isShareRoute(): boolean {
+  const path = window.location.pathname;
+  return /^\/(g|s)\//.test(path);
+}
 
 function AppContent() {
   const {
@@ -46,9 +53,7 @@ function AppContent() {
   const [globalDragOver, setGlobalDragOver] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [currentView]);
+  useEffect(() => { setDrawerOpen(false); }, [currentView]);
 
   useEffect(() => {
     if (drawerOpen) document.body.style.overflow = 'hidden';
@@ -89,10 +94,6 @@ function AppContent() {
     { key: 'k', ctrl: true, handler: () => setGlobalSearchOpen(true) },
     { key: 'u', ctrl: true, handler: () => setUploadOpen(true) },
     { key: '/', ctrl: true, handler: () => setShortcutsHelpOpen(true) },
-    { key: '/', handler: () => {
-      const el = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
-      el?.focus();
-    } },
     { key: '?', handler: () => setShortcutsHelpOpen(true) },
   ], [setGlobalSearchOpen, setShortcutsHelpOpen]);
 
@@ -124,28 +125,21 @@ function AppContent() {
         <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 14, textAlign: 'center', maxWidth: 360 }}>
           Unable to reach the authentication server. Please check your connection and try again.
         </div>
-        <button
-          onClick={() => window.location.reload()}
-          style={{ marginTop: 8, padding: '10px 24px', borderRadius: 8, border: 'none', background: 'var(--accent, #3b82f6)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-        >
+        <button onClick={() => window.location.reload()} style={{ marginTop: 8, padding: '10px 24px', borderRadius: 8, border: 'none', background: 'var(--accent, #3b82f6)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           Retry
         </button>
       </div>
     );
   }
 
-  if (!authed && !passcodeInitialized) {
-    return <SetupScreen onSetup={setupAdminPasscode} />;
-  }
-
-  if (!authed) {
-    return <LoginScreen onLogin={login} />;
-  }
+  if (!authed && !passcodeInitialized) return <SetupScreen onSetup={setupAdminPasscode} />;
+  if (!authed) return <LoginScreen onLogin={login} />;
 
   const showDashboard = currentView === 'dashboard';
   const showSettings = currentView === 'settings';
   const showApi = currentView === 'api';
   const showFolderSync = currentView === 'folder-sync';
+  const showShares = currentView === 'shares';
   const explorerViews = ['files', 'shared', 'shared-folder', 'folders'];
   const showExplorer = explorerViews.includes(currentView);
   const simpleViews = ['recent', 'starred', 'photos', 'videos', 'trash', 'drives'];
@@ -160,9 +154,7 @@ function AppContent() {
           onMobileClose={() => setDrawerOpen(false)}
         />
 
-        {drawerOpen && (
-          <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} />
-        )}
+        {drawerOpen && <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} />}
 
         <main>
           <MobileHead onMenuClick={() => setDrawerOpen(true)} />
@@ -172,6 +164,7 @@ function AppContent() {
           {showSettings && <SettingsView />}
           {showApi && <ApiView />}
           {showFolderSync && <FolderSyncView />}
+          {showShares && <ShareManagementView />}
           {showSimple && <SimpleFileView onPreview={openPreviewWithList} />}
         </main>
       </div>
@@ -199,6 +192,9 @@ function AppContent() {
 }
 
 export default function App() {
+  if (isShareRoute()) {
+    return <SharePage />;
+  }
   return (
     <AppProvider>
       <AppContent />

@@ -5,16 +5,20 @@ import { fetchApiKeys, createApiKey, revokeApiKey, AVAILABLE_SCOPES, type ApiKey
 import { fetchWebhooks, createWebhook, toggleWebhook, deleteWebhook, testWebhook, fetchWebhookDeliveries, AVAILABLE_EVENTS, type Webhook, type WebhookDelivery } from '@/utils/webhooks';
 import { fetchAnalytics, takeSnapshot, type AnalyticsSummary } from '@/utils/analytics';
 import { setupEncryption, verifyPassphrase, isEncryptionSetup, clearEncryption } from '@/utils/encryption';
+import { ShareManagementView } from '@/components/share/ShareManagementView';
 import type { SettingsTab, DeviceInfo, BackupData } from '@/types';
 
-const tabs: { id: SettingsTab | 'api-keys' | 'webhooks' | 'analytics' | 'encryption'; icon: string; label: string }[] = [
+type ExtendedTab = SettingsTab | 'api-keys' | 'webhooks' | 'analytics' | 'encryption' | 'shares';
+
+const tabs: { id: ExtendedTab; icon: string; label: string }[] = [
   { id: 'general', icon: '\u2699', label: 'General' },
   { id: 'storage', icon: '\u25C9', label: 'Storage & Routing' },
+  { id: 'shares', icon: '\u{1F517}', label: 'Share Links' },
   { id: 'security', icon: '\u2301', label: 'Security' },
   { id: 'api-keys', icon: '\u26BF', label: 'API Keys' },
   { id: 'webhooks', icon: '\u2197', label: 'Webhooks' },
   { id: 'analytics', icon: '\u25E2', label: 'Analytics' },
-  { id: 'encryption', icon: '\u26BF', label: 'Encryption' },
+  { id: 'encryption', icon: '\u{1F512}', label: 'Encryption' },
   { id: 'appearance', icon: '\u25D0', label: 'Appearance' },
   { id: 'backup', icon: '\u21A5', label: 'Backup & Data' },
   { id: 'devices', icon: '\u25C9', label: 'My Devices' },
@@ -67,7 +71,7 @@ export function SettingsView() {
     notificationsEnabled, enableNotifications,
   } = useApp();
 
-  const [active, setActive] = useState<string>('general');
+  const [active, setActive] = useState<ExtendedTab>('general');
   const [name, setName] = useState(storageName);
   const [autoSave, setAutoSave] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(true);
@@ -97,7 +101,7 @@ export function SettingsView() {
   const [importConfirm, setImportConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ============ API Keys ============
+  // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loadingKeys, setLoadingKeys] = useState(false);
   const [showCreateKey, setShowCreateKey] = useState(false);
@@ -108,7 +112,7 @@ export function SettingsView() {
   const [createdKey, setCreatedKey] = useState<CreateApiKeyResult | null>(null);
   const [revokeKeyTarget, setRevokeKeyTarget] = useState<ApiKey | null>(null);
 
-  // ============ Webhooks ============
+  // Webhooks
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [loadingHooks, setLoadingHooks] = useState(false);
   const [showCreateHook, setShowCreateHook] = useState(false);
@@ -121,11 +125,11 @@ export function SettingsView() {
   const [loadingDeliveries, setLoadingDeliveries] = useState(false);
   const [testingHookId, setTestingHookId] = useState<string | null>(null);
 
-  // ============ Analytics ============
+  // Analytics
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
-  // ============ Encryption ============
+  // Encryption
   const [encSetupDone, setEncSetupDone] = useState(() => isEncryptionSetup());
   const [encPass, setEncPass] = useState('');
   const [encPassConfirm, setEncPassConfirm] = useState('');
@@ -134,7 +138,7 @@ export function SettingsView() {
   const [encVerifyResult, setEncVerifyResult] = useState<string | null>(null);
   const [encVerifyBusy, setEncVerifyBusy] = useState(false);
 
-  // ============ Loaders ============
+  // Loaders
   const loadDevices = useCallback(async () => {
     setLoadingDevices(true);
     try {
@@ -192,8 +196,7 @@ export function SettingsView() {
     if (active === 'analytics') void loadAnalytics();
   }, [active, loadDevices, loadKeys, loadHooks, loadAnalytics]);
 
-  // ============ Handlers ============
-
+  // Handlers
   const handleRevoke = async () => {
     if (!revokeTarget) return;
     try {
@@ -280,7 +283,7 @@ export function SettingsView() {
     toast('Settings saved');
   };
 
-  // ============ API Keys handlers ============
+  // API Keys handlers
   const handleCreateKey = async () => {
     if (!newKeyName.trim() || newKeyScopes.length === 0) return;
     setCreatingKey(true);
@@ -320,7 +323,7 @@ export function SettingsView() {
     }
   };
 
-  // ============ Webhooks handlers ============
+  // Webhooks handlers
   const handleCreateHook = async () => {
     if (!hookUrl.trim() || hookEvents.length === 0) return;
     setCreatingHook(true);
@@ -385,7 +388,7 @@ export function SettingsView() {
     }
   };
 
-  // ============ Analytics handlers ============
+  // Analytics handlers
   const handleSnapshot = async () => {
     try {
       await takeSnapshot();
@@ -396,7 +399,7 @@ export function SettingsView() {
     }
   };
 
-  // ============ Encryption handlers ============
+  // Encryption handlers
   const handleSetupEncryption = async () => {
     if (encPass.length < 8) { toast('Passphrase must be at least 8 characters'); return; }
     if (encPass !== encPassConfirm) { toast('Passphrases do not match'); return; }
@@ -420,13 +423,9 @@ export function SettingsView() {
     setEncVerifyResult(null);
     try {
       const ok = await verifyPassphrase(encVerifyPass);
-      if (ok === true) {
-        setEncVerifyResult('✓ Passphrase is correct');
-      } else if (ok === false) {
-        setEncVerifyResult('✗ Passphrase is incorrect');
-      } else {
-        setEncVerifyResult('Encryption not set up yet');
-      }
+      if (ok === true) setEncVerifyResult('✓ Passphrase is correct');
+      else if (ok === false) setEncVerifyResult('✗ Passphrase is incorrect');
+      else setEncVerifyResult('Encryption not set up yet');
     } catch {
       setEncVerifyResult('✗ Verification failed');
     } finally {
@@ -441,8 +440,7 @@ export function SettingsView() {
     toast('Encryption disabled');
   };
 
-  // ============ Render ============
-
+  // Chart
   const renderAnalyticsChart = () => {
     if (!analytics || analytics.history.length === 0) {
       return (
@@ -460,15 +458,7 @@ export function SettingsView() {
             <div
               key={i}
               title={`${h.snapshot_date}: ${Number(h.used_gb).toFixed(1)} GB`}
-              style={{
-                flex: 1,
-                height: `${pct}%`,
-                minHeight: 4,
-                background: 'linear-gradient(180deg, #7c3aed, #5b5cf0)',
-                borderRadius: '3px 3px 0 0',
-                transition: 'height 0.3s ease',
-                cursor: 'pointer',
-              }}
+              style={{ flex: 1, height: `${pct}%`, minHeight: 4, background: 'linear-gradient(180deg, #7c3aed, #5b5cf0)', borderRadius: '3px 3px 0 0', transition: 'height 0.3s ease', cursor: 'pointer' }}
             />
           );
         })}
@@ -490,7 +480,7 @@ export function SettingsView() {
           </button>
         ))}
         <div className="settings-version">
-          My Storage v2.1<br /><span>Cloud storage pool</span>
+          My Storage v2.2<br /><span>Cloud storage pool</span>
         </div>
       </div>
 
@@ -516,10 +506,7 @@ export function SettingsView() {
             </div>
             <div className="setting-card row-setting">
               <div><b>Browser notifications</b><small>Tampilkan notifikasi saat upload selesai atau gagal.</small></div>
-              <button
-                className={notificationsEnabled ? 'btn' : 'btn primary'}
-                onClick={() => void enableNotifications()}
-              >
+              <button className={notificationsEnabled ? 'btn' : 'btn primary'} onClick={() => void enableNotifications()}>
                 {notificationsEnabled ? 'Enabled ✓' : 'Enable'}
               </button>
             </div>
@@ -549,6 +536,12 @@ export function SettingsView() {
               <div><b>Warn when storage is low</b><small>Tampilkan peringatan ketika kapasitas Drive di bawah 10%.</small></div>
               <label className="switch"><input type="checkbox" checked={lowWarn} onChange={(e) => setLowWarn(e.target.checked)} /><i /></label>
             </div>
+          </section>
+        )}
+
+        {active === 'shares' && (
+          <section className="setting-panel active">
+            <ShareManagementView />
           </section>
         )}
 
@@ -608,7 +601,6 @@ export function SettingsView() {
           </section>
         )}
 
-        {/* ============ API KEYS ============ */}
         {active === 'api-keys' && (
           <section className="setting-panel active">
             <div className="setting-header">
@@ -703,7 +695,6 @@ export function SettingsView() {
           </section>
         )}
 
-        {/* ============ WEBHOOKS ============ */}
         {active === 'webhooks' && (
           <section className="setting-panel active">
             <div className="setting-header">
@@ -777,7 +768,6 @@ export function SettingsView() {
           </section>
         )}
 
-        {/* ============ ANALYTICS ============ */}
         {active === 'analytics' && (
           <section className="setting-panel active">
             <div className="setting-header">
@@ -835,7 +825,6 @@ export function SettingsView() {
           </section>
         )}
 
-        {/* ============ ENCRYPTION ============ */}
         {active === 'encryption' && (
           <section className="setting-panel active">
             <div className="setting-header">
@@ -1016,7 +1005,7 @@ export function SettingsView() {
         )}
       </div>
 
-      {/* Revoke device modal */}
+      {/* Modals */}
       {revokeTarget && (
         <div className="modal-wrap open" onClick={() => setRevokeTarget(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
@@ -1037,7 +1026,6 @@ export function SettingsView() {
         </div>
       )}
 
-      {/* Revoke API key modal */}
       {revokeKeyTarget && (
         <div className="modal-wrap open" onClick={() => setRevokeKeyTarget(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
@@ -1058,7 +1046,6 @@ export function SettingsView() {
         </div>
       )}
 
-      {/* Delete webhook modal */}
       {deleteHookTarget && (
         <div className="modal-wrap open" onClick={() => setDeleteHookTarget(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
@@ -1079,7 +1066,6 @@ export function SettingsView() {
         </div>
       )}
 
-      {/* Webhook deliveries modal */}
       {deliveriesHook && (
         <div className="modal-wrap open" onClick={() => setDeliveriesHook(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: '100%' }}>
@@ -1097,16 +1083,11 @@ export function SettingsView() {
                   <div key={d.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)', fontSize: 11 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <strong>{d.event_type}</strong>
-                      <span style={{
-                        color: d.status === 'delivered' ? '#16a34a' : d.status === 'failed' ? '#dc2626' : '#7b8495',
-                        fontWeight: 600,
-                      }}>
+                      <span style={{ color: d.status === 'delivered' ? '#16a34a' : d.status === 'failed' ? '#dc2626' : '#7b8495', fontWeight: 600 }}>
                         {d.status} {d.response_code ? `(${d.response_code})` : ''}
                       </span>
                     </div>
-                    <div style={{ color: '#7b8495', marginTop: 3 }}>
-                      {new Date(d.created_at).toLocaleString()}
-                    </div>
+                    <div style={{ color: '#7b8495', marginTop: 3 }}>{new Date(d.created_at).toLocaleString()}</div>
                     {d.response_body && (
                       <div style={{ marginTop: 4, padding: 6, background: 'var(--soft)', borderRadius: 6, fontFamily: 'ui-monospace,monospace', fontSize: 10, maxHeight: 60, overflow: 'auto' }}>
                         {d.response_body}

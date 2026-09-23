@@ -13,6 +13,8 @@ import * as driveApi from '@/utils/driveApi';
 import { computeFileHash } from '@/utils/fileHash';
 import * as uploadQueue from '@/utils/uploadQueue';
 import * as notifications from '@/utils/notifications';
+import * as shareApi from '@/utils/shareApi';
+import type { ShareLink, CreateShareParams, ShareRole } from '@/utils/shareApi';
 import type { AppContextValue } from './AppContext';
 
 import type { PasscodeError } from '@/utils/driveApi';
@@ -47,6 +49,10 @@ export function useAppState(): AppContextValue {
   );
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+
+  // Phase 14: Share Links
+  const [shareLinks, setShareLinks] = useState<ShareLink[]>([]);
+  const [loadingShares, setLoadingShares] = useState(false);
 
   const enableNotifications = useCallback(async (): Promise<boolean> => {
     const perm = await notifications.requestNotificationPermission();
@@ -257,35 +263,23 @@ export function useAppState(): AppContextValue {
 
   const buildFetchOpts = useCallback((): Parameters<typeof driveApi.fetchFiles>[0] => {
     switch (currentView) {
-      case 'trash':
-        return { trashed: true, pageSize: 50 };
-      case 'starred':
-        return { starredOnly: true, pageSize: 50 };
-      case 'photos':
-        return { typeFilter: 'img', pageSize: 50 };
-      case 'videos':
-        return { typeFilter: 'video', pageSize: 50 };
-      case 'folders':
-        return { typeFilter: 'folder', pageSize: 50 };
-      case 'shared':
-        return { sharedOnly: true, pageSize: 50 };
-      case 'shared-folder':
-        return { sharedOnly: true, typeFilter: 'folder', pageSize: 50 };
-      case 'recent':
-        return { pageSize: 50, orderBy: 'modifiedTime desc' };
-      case 'drives':
-        return { typeFilter: 'folder', pageSize: 50 };
+      case 'trash': return { trashed: true, pageSize: 50 };
+      case 'starred': return { starredOnly: true, pageSize: 50 };
+      case 'photos': return { typeFilter: 'img', pageSize: 50 };
+      case 'videos': return { typeFilter: 'video', pageSize: 50 };
+      case 'folders': return { typeFilter: 'folder', pageSize: 50 };
+      case 'shared': return { sharedOnly: true, pageSize: 50 };
+      case 'shared-folder': return { sharedOnly: true, typeFilter: 'folder', pageSize: 50 };
+      case 'recent': return { pageSize: 50, orderBy: 'modifiedTime desc' };
+      case 'drives': return { typeFilter: 'folder', pageSize: 50 };
       case 'files':
       case 'dashboard':
-      default:
-        return { folderId: currentFolderId, pageSize: 50 };
+      default: return { folderId: currentFolderId, pageSize: 50 };
     }
   }, [currentView, currentFolderId]);
 
   const refreshFiles = useCallback(async () => {
-    if (fileLoadAbort.current) {
-      fileLoadAbort.current.abort();
-    }
+    if (fileLoadAbort.current) fileLoadAbort.current.abort();
     setLoadingFiles(true);
     setFilesError(false);
     pageTokensRef.current = undefined;
@@ -315,10 +309,7 @@ export function useAppState(): AppContextValue {
         const seen = new Set(prev.map((f) => f.id));
         const merged = [...prev];
         for (const f of result.files) {
-          if (!seen.has(f.id)) {
-            merged.push(f);
-            seen.add(f.id);
-          }
+          if (!seen.has(f.id)) { merged.push(f); seen.add(f.id); }
         }
         return merged;
       });
@@ -362,10 +353,7 @@ export function useAppState(): AppContextValue {
   }, []);
 
   const navigateToBreadcrumb = useCallback((index: number) => {
-    if (index < 0) {
-      navigateToRoot();
-      return;
-    }
+    if (index < 0) { navigateToRoot(); return; }
     const item = breadcrumbs[index];
     if (item) {
       setCurrentFolderId(item.id);
@@ -451,9 +439,7 @@ export function useAppState(): AppContextValue {
     try {
       const sessions = await driveApi.fetchUploadSessions();
       setUploadSessions(sessions);
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }, []);
 
   const processQueue = useCallback(async () => {
@@ -468,48 +454,30 @@ export function useAppState(): AppContextValue {
         const abortController = new AbortController();
         uploadAbortControllers.current.set(sessionId, abortController);
 
-        setUploadSessions((prev) => prev.map((s) =>
-          s.id === sessionId ? { ...s, status: 'uploading', progress: 0 } : s
-        ));
+        setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'uploading', progress: 0 } : s));
 
         try {
           await driveApi.startUploadWithProgress(
-            sessionId,
-            file,
-            file.type || 'application/octet-stream',
+            sessionId, file, file.type || 'application/octet-stream',
             (uploaded, total) => {
               setUploadSessions((prev) => prev.map((s) =>
-                s.id === sessionId
-                  ? { ...s, progress: Math.round((uploaded / total) * 100), status: 'uploading' }
-                  : s
+                s.id === sessionId ? { ...s, progress: Math.round((uploaded / total) * 100), status: 'uploading' } : s
               ));
             },
             abortController.signal,
           );
-          setUploadSessions((prev) => prev.map((s) =>
-            s.id === sessionId ? { ...s, status: 'completed', progress: 100 } : s
-          ));
-          if (uploadQueue.isIndexedDBSupported()) {
-            void uploadQueue.deletePendingUpload(sessionId);
-          }
+          setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'completed', progress: 100 } : s));
+          if (uploadQueue.isIndexedDBSupported()) void uploadQueue.deletePendingUpload(sessionId);
           toast(file.name + ' uploaded');
-          if (notificationsEnabled) {
-            notifications.notifyUploadComplete(file.name);
-          }
+          if (notificationsEnabled) notifications.notifyUploadComplete(file.name);
           void refreshFiles();
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') {
-            setUploadSessions((prev) => prev.map((s) =>
-              s.id === sessionId ? { ...s, status: 'cancelled' } : s
-            ));
+            setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'cancelled' } : s));
           } else {
             const msg = err instanceof Error ? err.message : 'Upload failed';
-            setUploadSessions((prev) => prev.map((s) =>
-              s.id === sessionId ? { ...s, status: 'failed', errorMessage: msg } : s
-            ));
-            if (notificationsEnabled) {
-              notifications.notifyUploadFailed(file.name, msg);
-            }
+            setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'failed', errorMessage: msg } : s));
+            if (notificationsEnabled) notifications.notifyUploadFailed(file.name, msg);
           }
         } finally {
           uploadAbortControllers.current.delete(sessionId);
@@ -539,18 +507,14 @@ export function useAppState(): AppContextValue {
 
       try {
         let nodeId: string;
-        if (targetNodeId) {
-          nodeId = targetNodeId;
-        } else {
+        if (targetNodeId) nodeId = targetNodeId;
+        else {
           const route = await driveApi.routeUpload(file.size / 1024 / 1024, routingMode);
           nodeId = route.nodeId;
         }
 
         const session = await driveApi.initUpload(
-          nodeId,
-          cleanName,
-          mimeType,
-          file.size,
+          nodeId, cleanName, mimeType, file.size,
           currentFolderId !== 'root' ? currentFolderId : undefined,
         );
 
@@ -559,18 +523,13 @@ export function useAppState(): AppContextValue {
         if (uploadQueue.isIndexedDBSupported()) {
           try {
             await uploadQueue.savePendingUpload({
-              sessionId: session.id,
-              nodeId,
-              filename: cleanName,
-              mimeType,
+              sessionId: session.id, nodeId, filename: cleanName, mimeType,
               size: file.size,
               parentGoogleId: currentFolderId !== 'root' ? currentFolderId : null,
               blob: file.slice(0, file.size),
               createdAt: Date.now(),
             });
-          } catch {
-            // IndexedDB might fail in private mode
-          }
+          } catch { /* ignore */ }
         }
 
         setUploadSessions((prev) => [...prev.filter((s) => s.id !== session.id), { ...session, status: 'queued', progress: 0 }]);
@@ -586,44 +545,27 @@ export function useAppState(): AppContextValue {
 
   const retryUpload = useCallback(async (sessionId: string) => {
     const file = fileRegistry.current.get(sessionId);
-    if (!file) {
-      toast('Cannot retry — file data no longer available');
-      return;
-    }
-
+    if (!file) { toast('Cannot retry — file data no longer available'); return; }
     try {
       await driveApi.retryUpload(sessionId);
-      setUploadSessions((prev) => prev.map((s) =>
-        s.id === sessionId ? { ...s, status: 'queued', progress: 0, errorMessage: null } : s
-      ));
+      setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'queued', progress: 0, errorMessage: null } : s));
       uploadQueueRef.current.push(sessionId);
       void processQueue();
-    } catch {
-      toast('Retry failed');
-    }
+    } catch { toast('Retry failed'); }
   }, [toast, processQueue]);
 
   const cancelUpload = useCallback(async (sessionId: string) => {
     const controller = uploadAbortControllers.current.get(sessionId);
-    if (controller) {
-      controller.abort();
-      uploadAbortControllers.current.delete(sessionId);
-    }
+    if (controller) { controller.abort(); uploadAbortControllers.current.delete(sessionId); }
     uploadQueueRef.current = uploadQueueRef.current.filter((id) => id !== sessionId);
     try {
       await driveApi.cancelUpload(sessionId);
-      setUploadSessions((prev) => prev.map((s) =>
-        s.id === sessionId ? { ...s, status: 'cancelled' } : s
-      ));
-    } catch {
-      // The abort may have already updated the session
-    }
+      setUploadSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, status: 'cancelled' } : s));
+    } catch { /* ignore */ }
   }, []);
 
   const clearUploadSession = useCallback(async (sessionId: string) => {
-    if (uploadQueue.isIndexedDBSupported()) {
-      void uploadQueue.deletePendingUpload(sessionId);
-    }
+    if (uploadQueue.isIndexedDBSupported()) void uploadQueue.deletePendingUpload(sessionId);
     uploadQueueRef.current = uploadQueueRef.current.filter((id) => id !== sessionId);
     fileRegistry.current.delete(sessionId);
     try {
@@ -661,6 +603,40 @@ export function useAppState(): AppContextValue {
       return { exists: false };
     }
   }, []);
+
+  // ============ Share Links (Phase 14) ============
+
+  const refreshShares = useCallback(async () => {
+    setLoadingShares(true);
+    try {
+      const list = await shareApi.fetchShares();
+      setShareLinks(list);
+    } catch {
+      setShareLinks([]);
+    } finally {
+      setLoadingShares(false);
+    }
+  }, []);
+
+  const createShareLink = useCallback(async (params: CreateShareParams) => {
+    const result = await shareApi.createShare(params);
+    await refreshShares();
+    return result;
+  }, [refreshShares]);
+
+  const revokeShareLink = useCallback(async (id: string) => {
+    await shareApi.revokeShare(id);
+    setShareLinks((prev) => prev.filter((s) => s.id !== id));
+    toast('Share link revoked');
+  }, [toast]);
+
+  const updateShareLink = useCallback(async (id: string, patch: Partial<{ role: ShareRole }>) => {
+    await shareApi.updateShare(id, patch);
+    await refreshShares();
+    toast('Share updated');
+  }, [refreshShares, toast]);
+
+  // ============ Data ops ============
 
   const resetData = useCallback(() => {
     localStorage.removeItem('ms_drives');
@@ -703,9 +679,7 @@ export function useAppState(): AppContextValue {
         if (pending.length === 0) return;
 
         toast(`${pending.length} upload(s) interrupted — resuming...`);
-        if (notificationsEnabled) {
-          notifications.notifyResumed(pending.length);
-        }
+        if (notificationsEnabled) notifications.notifyResumed(pending.length);
 
         for (const item of pending) {
           try {
@@ -717,86 +691,38 @@ export function useAppState(): AppContextValue {
           }
         }
         void processQueue();
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
   return {
-    theme,
-    toggleTheme,
-    setTheme,
-    toastMsg,
-    toast,
-    currentView,
-    setView,
-    authLoading,
-    authed,
-    authError,
-    passcodeInitialized,
-    login,
-    setupAdminPasscode,
-    logout,
-    drives,
-    dashboardFiles,
-    explorerFiles,
-    apiLogs,
-    storageName,
-    setStorageName,
-    routingMode,
-    setRoutingMode,
-    storageNodes,
-    loadingNodes,
-    nodesError,
-    storagePool,
-    refreshStorageNodes,
-    refreshStorageNode,
-    connectGoogleDrive,
-    disconnectStorageNode,
-    setNodePriority,
-    toggleNodeEnabled,
-    driveFiles,
-    loadingFiles,
-    loadingMoreFiles,
-    hasMoreFiles,
-    filesError,
-    currentFolderId,
-    currentFolderName,
-    breadcrumbs,
-    navigateToFolder,
-    navigateToRoot,
-    navigateToBreadcrumb,
-    refreshFiles,
-    loadMoreFiles,
-    searchDriveFiles,
-    renameDriveFile,
-    trashDriveFile,
-    untrashDriveFile,
-    starDriveFile,
-    copyDriveFile,
-    moveDriveFile,
-    deleteDriveFile,
-    createDriveFolder,
-    shareDriveFile,
-    uploadSessions,
-    refreshUploadSessions,
-    uploadFiles,
-    retryUpload,
-    cancelUpload,
-    clearUploadSession,
+    theme, toggleTheme, setTheme,
+    toastMsg, toast,
+    currentView, setView,
+    authLoading, authed, authError, passcodeInitialized,
+    login, setupAdminPasscode, logout,
+    drives, dashboardFiles, explorerFiles, apiLogs,
+    storageName, setStorageName,
+    routingMode, setRoutingMode,
+    storageNodes, loadingNodes, nodesError, storagePool,
+    refreshStorageNodes, refreshStorageNode,
+    connectGoogleDrive, disconnectStorageNode,
+    setNodePriority, toggleNodeEnabled,
+    driveFiles, loadingFiles, loadingMoreFiles, hasMoreFiles, filesError,
+    currentFolderId, currentFolderName, breadcrumbs,
+    navigateToFolder, navigateToRoot, navigateToBreadcrumb,
+    refreshFiles, loadMoreFiles, searchDriveFiles,
+    renameDriveFile, trashDriveFile, untrashDriveFile, starDriveFile,
+    copyDriveFile, moveDriveFile, deleteDriveFile, createDriveFolder, shareDriveFile,
+    uploadSessions, refreshUploadSessions, uploadFiles, retryUpload, cancelUpload, clearUploadSession,
     checkDuplicateFile,
-    resetData,
-    exportData,
-    fetchVersions,
-    restoreVersion,
+    resetData, exportData,
+    fetchVersions, restoreVersion,
     checkDeduplication,
-    notificationsEnabled,
-    enableNotifications,
-    shortcutsHelpOpen,
-    setShortcutsHelpOpen,
-    globalSearchOpen,
-    setGlobalSearchOpen,
+    notificationsEnabled, enableNotifications,
+    shortcutsHelpOpen, setShortcutsHelpOpen,
+    globalSearchOpen, setGlobalSearchOpen,
+    shareLinks, loadingShares, refreshShares, createShareLink, revokeShareLink, updateShareLink,
   };
 }

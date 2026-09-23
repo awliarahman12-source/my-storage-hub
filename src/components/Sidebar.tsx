@@ -2,11 +2,7 @@ import { useApp } from '@/context/AppContext';
 import { gb } from '@/utils/format';
 import type { ViewName } from '@/types';
 
-interface NavItem {
-  view: ViewName;
-  icon: string;
-  label: string;
-}
+interface NavItem { view: ViewName; icon: string; label: string; }
 
 const navGroups: { section: string; items: NavItem[] }[] = [
   {
@@ -33,6 +29,7 @@ const navGroups: { section: string; items: NavItem[] }[] = [
   {
     section: 'System',
     items: [
+      { view: 'shares', icon: '\u{1F517}', label: 'Share Links' },
       { view: 'folder-sync', icon: '\u2194', label: 'Folder Sync' },
       { view: 'settings', icon: '\u2699', label: 'Settings' },
       { view: 'api', icon: '\u2301', label: 'API & Integrations' },
@@ -61,8 +58,7 @@ export function Sidebar({ onOpenConvert, mobileOpen = false, onMobileClose }: Si
     <aside className={'sidebar' + (mobileOpen ? ' mobile-open' : '')}>
       <button className="sidebar-close" onClick={onMobileClose} aria-label="Close menu">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       </button>
 
@@ -99,9 +95,7 @@ export function Sidebar({ onOpenConvert, mobileOpen = false, onMobileClose }: Si
         <div className="pool-mini">
           <strong>{gb(cap)}</strong>
           <span>{gb(used)} used</span>
-          <div className="bar">
-            <i style={{ width: pct + '%' }} />
-          </div>
+          <div className="bar"><i style={{ width: pct + '%' }} /></div>
         </div>
 
         <div className="side-mobile-actions">

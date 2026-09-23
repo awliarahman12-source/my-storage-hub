@@ -1,45 +1,18 @@
 export type FileType =
-  | 'folder'
-  | 'img'
-  | 'video'
-  | 'pdf'
-  | 'audio'
-  | 'zip'
-  | 'file';
+  | 'folder' | 'img' | 'video' | 'pdf' | 'audio' | 'zip' | 'file';
 
 export type ViewName =
-  | 'dashboard'
-  | 'files'
-  | 'recent'
-  | 'starred'
-  | 'photos'
-  | 'videos'
-  | 'folders'
-  | 'drives'
-  | 'shared'
-  | 'shared-folder'
-  | 'trash'
-  | 'settings'
-  | 'api'
-  | 'folder-sync';
+  | 'dashboard' | 'files' | 'recent' | 'starred'
+  | 'photos' | 'videos' | 'folders' | 'drives'
+  | 'shared' | 'shared-folder' | 'trash'
+  | 'settings' | 'api' | 'folder-sync' | 'shares';
 
 export type Theme = 'light' | 'dark';
 
-export type ApiTab =
-  | 'overview'
-  | 'google'
-  | 'keys'
-  | 'upload'
-  | 'webhook'
-  | 'logs';
+export type ApiTab = 'overview' | 'google' | 'keys' | 'upload' | 'webhook' | 'logs';
 
 export type SettingsTab =
-  | 'general'
-  | 'storage'
-  | 'security'
-  | 'appearance'
-  | 'backup'
-  | 'devices';
+  | 'general' | 'storage' | 'security' | 'appearance' | 'backup' | 'devices' | 'shares';
 
 export type DriveStatus = 'connected' | 'disconnected' | 'syncing' | 'error';
 
@@ -151,15 +124,8 @@ export interface ApiLog {
   type: 'ok' | 'warn';
 }
 
-export interface ViewMeta {
-  title: string;
-  desc: string;
-}
-
-export interface BreadcrumbItem {
-  id: string;
-  name: string;
-}
+export interface ViewMeta { title: string; desc: string; }
+export interface BreadcrumbItem { id: string; name: string; }
 
 export interface DrivePermission {
   id: string;
@@ -188,19 +154,10 @@ export interface BackupData {
   version: string;
   exportedAt: string;
   storageNodes: {
-    id: string;
-    provider: string;
-    email: string;
-    displayName: string | null;
-    priority: number;
-    enabled: boolean;
-    status: string;
+    id: string; provider: string; email: string;
+    displayName: string | null; priority: number;
+    enabled: boolean; status: string;
   }[];
-  routing: {
-    mode: RoutingMode;
-  };
-  settings: {
-    storageName: string;
-    theme: Theme;
-  };
+  routing: { mode: RoutingMode };
+  settings: { storageName: string; theme: Theme };
 }
