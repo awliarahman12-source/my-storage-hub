@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { Drive, DashboardFile, ExplorerFile, Theme, ViewName, ApiLog, RoutingMode, StorageNode, DriveFileItem, UploadSession, StoragePoolSummary, BreadcrumbItem } from '@/types';
-import type { PasscodeError } from '@/utils/driveApi';
+import type { PasscodeError, FileVersion } from '@/utils/driveApi';
 
 export interface AppContextValue {
   // Theme
@@ -88,6 +88,13 @@ export interface AppContextValue {
   // Data ops
   resetData: () => void;
   exportData: () => void;
+
+  // Versions (Phase 10)
+  fetchVersions: (fileId: string, nodeId: string) => Promise<FileVersion[]>;
+  restoreVersion: (versionId: string) => Promise<void>;
+
+  // Deduplication (Phase 10)
+  checkDeduplication: (file: File) => Promise<{ exists: boolean; match?: any; hash?: string }>;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

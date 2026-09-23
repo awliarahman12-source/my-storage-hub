@@ -7,6 +7,15 @@ interface UploadModalProps {
   onClose: () => void;
 }
 
+interface DedupMatch {
+  hash: string;
+  storageNodeId: string;
+  googleFileId: string;
+  filename: string;
+  size: number;
+  drive: string;
+}
+
 export function UploadModal({ open, onClose }: UploadModalProps) {
   const {
     storageNodes,
@@ -20,6 +29,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     currentFolderId,
     currentFolderName,
     checkDuplicateFile,
+    checkDeduplication,
     toast,
   } = useApp();
 
@@ -28,6 +38,11 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [duplicatePrompt, setDuplicatePrompt] = useState<{ filename: string; drives: string } | null>(null);
   const [pendingFiles, setPendingFiles] = useState<FileList | File[] | null>(null);
+
+  // Phase 10: Deduplication prompt
+  const [dedupPrompt, setDedupPrompt] = useState<{ files: File[]; match: DedupMatch } | null>(null);
+  const [checkingDedup, setCheckingDedup] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasUsableDrives = storageNodes.filter((n) => n.status === 'connected').length > 0;
@@ -41,6 +56,15 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   useEffect(() => {
     if (open) void refreshUploadSessions();
   }, [open, refreshUploadSessions]);
+
+  const proceedUpload = useCallback(async (files: FileList | File[]) => {
+    setUploading(true);
+    try {
+      await uploadFiles(files, routingMode === 'manual' && selectedNodeId ? selectedNodeId : undefined);
+    } finally {
+      setUploading(false);
+    }
+  }, [uploadFiles, routingMode, selectedNodeId]);
 
   const handleUpload = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
@@ -58,7 +82,25 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
       if (!confirm(msg)) return;
     }
 
-    // Check for duplicates before uploading
+    // Phase 10: Deduplication check (first file only, to avoid long waits)
+    setCheckingDedup(true);
+    try {
+      for (const file of Array.from(files)) {
+        try {
+          const dedup = await checkDeduplication(file);
+          if (dedup.exists && dedup.match) {
+            setDedupPrompt({ files: Array.from(files), match: dedup.match as DedupMatch });
+            return;
+          }
+        } catch {
+          // If check fails, proceed
+        }
+      }
+    } finally {
+      setCheckingDedup(false);
+    }
+
+    // Check for duplicates by name
     const duplicates: string[] = [];
     for (const file of Array.from(files)) {
       try {
@@ -78,13 +120,8 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
       return;
     }
 
-    setUploading(true);
-    try {
-      await uploadFiles(files, routingMode === 'manual' && selectedNodeId ? selectedNodeId : undefined);
-    } finally {
-      setUploading(false);
-    }
-  }, [uploadFiles, routingMode, selectedNodeId, currentFolderId, checkDuplicateFile]);
+    await proceedUpload(files);
+  }, [uploadFiles, routingMode, selectedNodeId, currentFolderId, checkDuplicateFile, checkDeduplication, proceedUpload]);
 
   const proceedWithUpload = async (replace: boolean) => {
     setDuplicatePrompt(null);
@@ -94,18 +131,31 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     } else {
       toast('Uploading — old file will remain, new copy created');
     }
-    setUploading(true);
-    try {
-      await uploadFiles(pendingFiles, routingMode === 'manual' && selectedNodeId ? selectedNodeId : undefined);
-    } finally {
-      setUploading(false);
-      setPendingFiles(null);
-    }
+    await proceedUpload(pendingFiles);
+    setPendingFiles(null);
   };
 
   const cancelDuplicate = () => {
     setDuplicatePrompt(null);
     setPendingFiles(null);
+  };
+
+  const handleDedupUseExisting = () => {
+    if (!dedupPrompt) return;
+    const saved = (dedupPrompt.match.size / 1024 / 1024).toFixed(1);
+    toast(`Using existing copy — saved ${saved} MB`);
+    setDedupPrompt(null);
+  };
+
+  const handleDedupUploadAnyway = async () => {
+    if (!dedupPrompt) return;
+    const filesToUpload = dedupPrompt.files;
+    setDedupPrompt(null);
+    await proceedUpload(filesToUpload);
+  };
+
+  const handleDedupCancel = () => {
+    setDedupPrompt(null);
   };
 
   const activeSessions = uploadSessions.filter((s) => s.status === 'queued' || s.status === 'uploading' || s.status === 'retrying');
@@ -176,7 +226,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               style={{ cursor: uploading ? 'wait' : 'pointer', opacity: uploading ? 0.6 : 1 }}
             >
               <div className="upload-cloud">↑</div>
-              <strong>{uploading ? 'Uploading...' : 'Drag & drop files here'}</strong>
+              <strong>{uploading ? 'Uploading...' : checkingDedup ? 'Checking...' : 'Drag & drop files here'}</strong>
               <span>or click to select · JPG, PNG, PDF, ZIP, video, and more</span>
               <input
                 ref={fileInputRef}
@@ -189,12 +239,63 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </>
         )}
 
+        {/* Phase 10: Deduplication prompt */}
+        {dedupPrompt && (
+          <div style={{
+            marginTop: 12, padding: 16, borderRadius: 12,
+            background: 'linear-gradient(135deg, #eff6ff, #e0f2fe)', border: '1px solid #7dd3fc',
+          }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: '#0ea5e9', color: '#fff',
+                display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0,
+              }}>♻</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ fontSize: 13, display: 'block', color: '#075985' }}>Duplicate content detected</strong>
+                <p style={{ fontSize: 12, color: '#0369a1', margin: '4px 0 0' }}>
+                  Sama persis dengan <strong>{dedupPrompt.match.filename}</strong> di <strong>{dedupPrompt.match.drive}</strong>
+                  {' '}({formatSize(dedupPrompt.match.size)}).
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: 11, color: '#075985', margin: '0 0 12px' }}>
+              Upload ulang akan memakan ruang storage ekstra. Pilih <strong>Use Existing</strong> untuk hemat storage,
+              atau <strong>Upload Anyway</strong> kalau kamu memang mau duplikat fisik.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn primary"
+                style={{ fontSize: 12, padding: '8px 16px', background: '#0ea5e9', borderColor: '#0ea5e9' }}
+                onClick={handleDedupUseExisting}
+              >
+                Use Existing
+              </button>
+              <button
+                className="btn"
+                style={{ fontSize: 12, padding: '8px 16px' }}
+                onClick={() => void handleDedupUploadAnyway()}
+              >
+                Upload Anyway
+              </button>
+              <button
+                className="btn"
+                style={{ fontSize: 12, padding: '8px 16px' }}
+                onClick={handleDedupCancel}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Duplicate filename prompt */}
         {duplicatePrompt && (
           <div style={{
             marginTop: 12, padding: 14, borderRadius: 10,
             background: '#fff8e1', border: '1px solid #f0c040',
           }}>
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>⚠ Duplicate file detected</strong>
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>⚠ Duplicate file name detected</strong>
             <p style={{ fontSize: 12, color: '#7b8495', margin: '0 0 10px' }}>
               {duplicatePrompt.filename}
             </p>
@@ -212,6 +313,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </div>
         )}
 
+        {/* Upload Queue */}
         {uploadSessions.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -244,8 +346,8 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>Close</button>
           {hasUsableDrives && (
-            <button className="btn primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-              {uploading ? 'Uploading...' : 'Choose Files'}
+            <button className="btn primary" onClick={() => fileInputRef.current?.click()} disabled={uploading || checkingDedup}>
+              {uploading ? 'Uploading...' : checkingDedup ? 'Checking...' : 'Choose Files'}
             </button>
           )}
         </div>

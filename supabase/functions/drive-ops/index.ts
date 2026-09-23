@@ -1,4 +1,4 @@
-// Phase 9: Security hardening — session validation, input validation, security headers
+// Phase 9+10: Security hardening + versioning + deduplication
 import {
   getEnv,
   getSupabase,
@@ -129,7 +129,7 @@ async function getValidAccessToken(node: StorageNodeRow): Promise<string> {
 // ============ Cross-drive transfer helpers ============
 
 const GOOGLE_APPS_PREFIX = "application/vnd.google-apps.";
-const MAX_CROSS_DRIVE_BYTES = 100 * 1024 * 1024; // 100 MB
+const MAX_CROSS_DRIVE_BYTES = 100 * 1024 * 1024;
 
 function isGoogleNative(mimeType: string): boolean {
   return mimeType.startsWith(GOOGLE_APPS_PREFIX);
@@ -205,7 +205,6 @@ async function uploadToDrive(
   parentFolderId: string | null,
   blob: Blob,
 ): Promise<DriveFile> {
-  // Auto-convert Office files to Google-native format when crossing drives
   const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const isXlsx = mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const isPptx = mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -263,7 +262,6 @@ async function uploadToDrive(
     return await putRes.json() as DriveFile;
   }
 
-  // Small file — multipart upload
   const boundary = "mshub_" + Math.random().toString(36).slice(2);
   const encoder = new TextEncoder();
   const contentBuffer = new Uint8Array(await blob.arrayBuffer());
@@ -460,7 +458,7 @@ Deno.serve(async (req: Request) => {
     const nodes = await getAllStorageNodes(supabase);
     const connectedNodes = nodes.filter((n) => n.status === "connected" && n.access_token && n.enabled !== false);
 
-    // GET /drive-ops/files — list files across all connected drives
+    // GET /drive-ops/files
     if (path === "/files" && req.method === "GET") {
       const folderId = url.searchParams.get("folderId") || "root";
       const pageSize = Math.min(Number(url.searchParams.get("pageSize") || 100), 200);
@@ -518,7 +516,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/search — search across all drives
+    // GET /drive-ops/search
     if (path === "/search" && req.method === "GET") {
       const q = url.searchParams.get("q") || "";
       if (!q || connectedNodes.length === 0) {
@@ -537,9 +535,7 @@ Deno.serve(async (req: Request) => {
           for (const f of files) {
             allFiles.push(publicFile(f, node));
           }
-        } catch {
-          // skip failed nodes
-        }
+        } catch { /* skip */ }
       }
 
       return new Response(JSON.stringify({ files: allFiles }), {
@@ -547,7 +543,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/check-duplicate — check if filename exists in a folder across nodes
+    // GET /drive-ops/check-duplicate
     if (path === "/check-duplicate" && req.method === "GET") {
       const filename = url.searchParams.get("filename") || "";
       const parentGoogleId = url.searchParams.get("parentGoogleId");
@@ -574,9 +570,7 @@ Deno.serve(async (req: Request) => {
               drive: node.display_name || node.email,
             });
           }
-        } catch {
-          // skip failed nodes
-        }
+        } catch { /* skip */ }
       }
 
       return new Response(JSON.stringify({
@@ -587,7 +581,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/nodes — list storage nodes with quota
+    // GET /drive-ops/nodes
     if (path === "/nodes" && req.method === "GET") {
       const nodesWithQuota = await Promise.all(
         nodes.map(async (n) => {
@@ -630,7 +624,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/pool — storage pool summary
+    // GET /drive-ops/pool
     if (path === "/pool" && req.method === "GET") {
       let totalCap = 0;
       let totalUsed = 0;
@@ -673,7 +667,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/file/:id?nodeId=xxx — get file details
+    // GET /drive-ops/file/:id
     const fileMatch = path.match(/^\/file\/([^/]+)$/);
     if (fileMatch && req.method === "GET") {
       const fileId = fileMatch[1];
@@ -688,7 +682,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/download/:id?nodeId=xxx — proxy download from Google Drive
+    // GET /drive-ops/download/:id
     const downloadMatch = path.match(/^\/download\/([^/]+)$/);
     if (downloadMatch && req.method === "GET") {
       const fileId = downloadMatch[1];
@@ -714,7 +708,7 @@ Deno.serve(async (req: Request) => {
       return new Response(res.body, { headers });
     }
 
-    // GET /drive-ops/preview/:id?nodeId=xxx — proxy file content for preview
+    // GET /drive-ops/preview/:id
     const previewMatch = path.match(/^\/preview\/([^/]+)$/);
     if (previewMatch && req.method === "GET") {
       const fileId = previewMatch[1];
@@ -750,7 +744,7 @@ Deno.serve(async (req: Request) => {
       return new Response(res.body, { headers });
     }
 
-    // GET /drive-ops/text-preview/:id?nodeId=xxx — fetch text file content for preview
+    // GET /drive-ops/text-preview/:id
     const textPreviewMatch = path.match(/^\/text-preview\/([^/]+)$/);
     if (textPreviewMatch && req.method === "GET") {
       const fileId = textPreviewMatch[1];
@@ -774,7 +768,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/folders?nodeId=xxx&all=true — list folders for a node or all connected nodes
+    // GET /drive-ops/folders
     if (path === "/folders" && req.method === "GET") {
       const nodeId = url.searchParams.get("nodeId");
       const listAll = url.searchParams.get("all") === "true";
@@ -811,7 +805,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/rename — rename file
+    // POST /drive-ops/rename
     if (path === "/rename" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, newName } = body;
@@ -834,7 +828,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/trash — move file to trash
+    // POST /drive-ops/trash
     if (path === "/trash" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
@@ -856,7 +850,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/untrash — restore from trash
+    // POST /drive-ops/untrash
     if (path === "/untrash" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
@@ -878,7 +872,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/star — toggle star
+    // POST /drive-ops/star
     if (path === "/star" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, starred } = body;
@@ -900,7 +894,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/copy — copy file (optionally to a different drive/folder)
+    // POST /drive-ops/copy
     if (path === "/copy" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, destNodeId, destFolderId } = body;
@@ -909,7 +903,6 @@ Deno.serve(async (req: Request) => {
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      // Same-drive copy — use Google's native copy API
       if (!destNodeId || destNodeId === nodeId) {
         const copyBody: Record<string, unknown> = {};
         if (destFolderId && destFolderId !== "root") {
@@ -930,7 +923,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Cross-drive copy — download from source, upload to destination
       const sourceMeta = await getDriveFile(node, fileId);
       const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
       if (sizeBytes > MAX_CROSS_DRIVE_BYTES) {
@@ -975,7 +967,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/move — move file to a different parent folder (optionally cross-drive)
+    // POST /drive-ops/move
     if (path === "/move" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, newParentId, destNodeId } = body;
@@ -984,7 +976,6 @@ Deno.serve(async (req: Request) => {
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
-      // Cross-drive move — download + upload + delete original
       if (destNodeId && destNodeId !== nodeId) {
         const sourceMeta = await getDriveFile(node, fileId);
         const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
@@ -1053,7 +1044,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Same-drive move — just change parents
       const file = await getDriveFile(node, fileId);
       const currentParents = file.parents || [];
 
@@ -1081,7 +1071,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/create-folder — create a new folder
+    // POST /drive-ops/create-folder
     if (path === "/create-folder" && req.method === "POST") {
       const body = await req.json();
       const { nodeId, name, parentId } = body;
@@ -1114,7 +1104,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/share — share file with link
+    // POST /drive-ops/share
     if (path === "/share" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, access } = body;
@@ -1163,7 +1153,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/delete — permanently delete file
+    // POST /drive-ops/delete
     if (path === "/delete" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId } = body;
@@ -1184,7 +1174,131 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/permissions?fileId=xxx&nodeId=xxx — list permissions for a file
+    // ============ Versioning ============
+
+    // GET /drive-ops/versions?fileId=xxx&nodeId=xxx — list versions for a file
+    if (path === "/versions" && req.method === "GET") {
+      const fileId = url.searchParams.get("fileId");
+      const nodeId = url.searchParams.get("nodeId");
+      if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
+
+      const { data, error } = await supabase
+        .from("file_versions")
+        .select("*")
+        .eq("storage_node_id", nodeId)
+        .eq("google_file_id", fileId)
+        .order("version_number", { ascending: false });
+
+      if (error) throw new Error("Failed to fetch versions");
+
+      return new Response(JSON.stringify({ versions: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-ops/versions/restore — restore a specific version
+    if (path === "/versions/restore" && req.method === "POST") {
+      const body = await req.json();
+      const { versionId } = body;
+      if (!versionId) throw new HttpError(400, "versionId required");
+
+      const { data: version, error: vErr } = await supabase
+        .from("file_versions")
+        .select("*")
+        .eq("id", versionId)
+        .maybeSingle();
+
+      if (vErr || !version) throw new HttpError(404, "Version not found");
+
+      if (!version.archived_google_file_id) {
+        throw new HttpError(400, "Version has no archived content — nothing to restore");
+      }
+
+      const node = await getStorageNode(supabase, version.storage_node_id);
+      const token = await getValidAccessToken(node);
+
+      const res = await fetchWithRetry(
+        `https://www.googleapis.com/drive/v3/files/${version.archived_google_file_id}/copy`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: version.filename }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        throw new HttpError(res.status, `Restore failed: ${err}`);
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============ Deduplication ============
+
+    // GET /drive-ops/dedup/check?hash=xxx&size=yyy
+    if (path === "/dedup/check" && req.method === "GET") {
+      const hash = url.searchParams.get("hash");
+      const size = Number(url.searchParams.get("size") || "0");
+      if (!hash) throw new HttpError(400, "hash required");
+
+      const { data, error } = await supabase
+        .from("content_hashes")
+        .select("hash, storage_node_id, google_file_id, filename, size, mime_type")
+        .eq("hash", hash)
+        .eq("size", size)
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        return new Response(JSON.stringify({ exists: false }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      const node = await getStorageNode(supabase, data.storage_node_id);
+
+      return new Response(JSON.stringify({
+        exists: true,
+        match: {
+          hash: data.hash,
+          storageNodeId: data.storage_node_id,
+          googleFileId: data.google_file_id,
+          filename: data.filename,
+          size: data.size,
+          drive: node.display_name || node.email,
+        },
+      }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-ops/dedup/register
+    if (path === "/dedup/register" && req.method === "POST") {
+      const body = await req.json();
+      const { hash, nodeId, googleFileId, filename, size, mimeType } = body;
+      if (!hash || !nodeId || !googleFileId) {
+        throw new HttpError(400, "hash, nodeId, googleFileId required");
+      }
+
+      await supabase.from("content_hashes").upsert({
+        hash,
+        storage_node_id: nodeId,
+        google_file_id: googleFileId,
+        filename,
+        size: size || 0,
+        mime_type: mimeType || null,
+      }, { onConflict: "hash,storage_node_id,google_file_id" });
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============ Permissions ============
+
+    // GET /drive-ops/permissions
     if (path === "/permissions" && req.method === "GET") {
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
@@ -1205,7 +1319,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/permissions — add a user permission by email
+    // POST /drive-ops/permissions
     if (path === "/permissions" && req.method === "POST") {
       const body = await req.json();
       const { fileId, nodeId, email, role } = body;
@@ -1240,7 +1354,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // DELETE /drive-ops/permissions — remove a permission
+    // DELETE /drive-ops/permissions
     if (path === "/permissions" && req.method === "DELETE") {
       const body = await req.json();
       const { fileId, nodeId, permissionId } = body;
@@ -1269,7 +1383,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/share-link?fileId=xxx&nodeId=xxx — get share link
+    // GET /drive-ops/share-link
     if (path === "/share-link" && req.method === "GET") {
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");

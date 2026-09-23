@@ -8,8 +8,10 @@ import {
   fetchTextPreview,
   fetchAllFolders,
   logActivity,
+  fetchFileVersions,
+  restoreFileVersion,
 } from '@/utils/driveApi';
-import type { FolderEntry } from '@/utils/driveApi';
+import type { FolderEntry, FileVersion } from '@/utils/driveApi';
 import type { DriveFileItem, DashboardFile, ExplorerFile } from '@/types';
 
 interface PreviewModalProps {
@@ -93,6 +95,11 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem | null>(null);
   const [showActions, setShowActions] = useState(false);
 
+  // Versioning (Phase 10)
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versions, setVersions] = useState<FileVersion[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
   // Local file override for navigation
   const [localFile, setLocalFile] = useState<DriveFileItem | null>(null);
 
@@ -102,21 +109,18 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   const isDriveFile = file && 'nodeId' in file && 'id' in file && typeof file.id === 'string';
   const driveFile = isDriveFile ? (file as DriveFileItem) : null;
 
-  // Build navigable list from fileList (only non-folder items)
   const navList: DriveFileItem[] = fileList
     ? fileList.filter((f) => !f.isFolder)
     : driveFile && !driveFile.isFolder
       ? [driveFile]
       : [];
 
-  // Update current index when file changes
   useEffect(() => {
     if (!open || !driveFile) return;
     const idx = navList.findIndex((f) => f.id === driveFile.id);
     setCurrentIndex(idx);
   }, [open, driveFile?.id]);
 
-  // Reset image controls when file changes
   useEffect(() => {
     setZoom(1);
     setRotation(0);
@@ -127,7 +131,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   useEffect(() => {
     if (!open || !driveFile) return;
     if (driveFile.isFolder) return;
-    if (localFile) return; // delegated to the other effect
+    if (localFile) return;
 
     setLoading(true);
     setLoadError(null);
@@ -213,22 +217,21 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     return () => document.removeEventListener('keydown', handleKey);
   }, [open, currentIndex, navList.length, fullscreen, driveFile?.type, localFile?.type, navigatePrev, navigateNext, onClose]);
 
-  // Effective file (respect navigation override)
   const effectiveFile = localFile || file;
   const effectiveDriveFile = effectiveFile && 'nodeId' in effectiveFile && 'id' in effectiveFile && typeof (effectiveFile as DriveFileItem).id === 'string'
     ? (effectiveFile as DriveFileItem)
     : null;
 
-  // Reset local file when modal closes
   useEffect(() => {
     if (!open) {
       setLocalFile(null);
       setFullscreen(false);
       setShowActions(false);
+      setVersionsOpen(false);
+      setVersions([]);
     }
   }, [open]);
 
-  // Re-derive preview URL when effective file changes via navigation
   useEffect(() => {
     if (!open || !effectiveDriveFile || !localFile) return;
     if (effectiveDriveFile.isFolder) return;
@@ -368,6 +371,32 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
       toast('Trash failed');
     }
     setTrashConfirm(null);
+  };
+
+  // ============ Versioning (Phase 10) ============
+
+  const showVersions = async () => {
+    if (!edf) return;
+    setVersionsOpen(true);
+    setLoadingVersions(true);
+    try {
+      const list = await fetchFileVersions(edf.id, edf.nodeId);
+      setVersions(list);
+    } catch {
+      toast('Failed to load versions');
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+
+  const handleRestoreVersion = async (versionId: string) => {
+    try {
+      await restoreFileVersion(versionId);
+      toast('Version restored');
+      setVersionsOpen(false);
+    } catch {
+      toast('Restore failed');
+    }
   };
 
   const toggleFullscreen = () => setFullscreen((f) => !f);
@@ -593,18 +622,95 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               <button onClick={() => handleMoveOrCopy('move')}>{'\u2192'} Move</button>
               <button onClick={() => handleMoveOrCopy('copy')}>{'\u29C9'} Copy</button>
               <button onClick={handleStar}>{edf.starred ? '\u2605 Remove Star' : '\u2606 Add Star'}</button>
+              <button onClick={() => void showVersions()}>{'\u21BB'} Versions</button>
               <button className="danger" onClick={() => setTrashConfirm(edf)}>{'\u232B'} Delete</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Share Modal — FIXED: uses files array */}
+      {/* Share Modal */}
       <ShareModal
         files={shareFiles}
         open={shareFiles.length > 0}
         onClose={() => setShareFiles([])}
       />
+
+      {/* Version History Modal (Phase 10) */}
+      {versionsOpen && edf && (
+        <div className="modal-wrap open" onClick={() => setVersionsOpen(false)} style={{ zIndex: 320 }}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: '100%' }}>
+            <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+              <strong>Version History — {edf.name}</strong>
+              <button className="close-btn" onClick={() => setVersionsOpen(false)}>{'\u00D7'}</button>
+            </div>
+            <div style={{ padding: '16px 20px', maxHeight: 400, overflowY: 'auto' }}>
+              {loadingVersions ? (
+                <div style={{ textAlign: 'center', color: '#9da7b8', padding: 30 }}>
+                  <div className="preview-spinner" style={{ margin: '0 auto 12px' }} />
+                  Loading versions...
+                </div>
+              ) : versions.length === 0 ? (
+                <div style={{ textAlign: 'center', color: '#9da7b8', padding: 30, fontSize: 12 }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>{'\u21BB'}</div>
+                  <strong style={{ display: 'block', color: '#4b5565', marginBottom: 4 }}>No previous versions</strong>
+                  <span>Versions are created when you overwrite or modify a file.</span>
+                </div>
+              ) : (
+                versions.map((v, idx) => (
+                  <div
+                    key={v.id}
+                    style={{
+                      padding: 12,
+                      borderBottom: '1px solid var(--border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{
+                          fontSize: 10,
+                          padding: '2px 6px',
+                          borderRadius: 6,
+                          background: idx === 0 ? '#eef2ff' : 'var(--soft)',
+                          color: idx === 0 ? '#5b5cf0' : '#7b8495',
+                          fontWeight: 700,
+                        }}>v{v.version_number}</span>
+                        {idx === 0 && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>CURRENT</span>}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.filename}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#7b8495', marginTop: 4 }}>
+                        {new Date(v.created_at).toLocaleString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                        })}
+                        {' \u00B7 '}
+                        {v.size > 1024 * 1024
+                          ? (v.size / 1024 / 1024).toFixed(1) + ' MB'
+                          : (v.size / 1024).toFixed(1) + ' KB'}
+                      </div>
+                    </div>
+                    {idx > 0 && v.archived_google_file_id && (
+                      <button
+                        className="xbtn"
+                        style={{ fontSize: 11, padding: '6px 12px', flexShrink: 0 }}
+                        onClick={() => void handleRestoreVersion(v.id)}
+                      >
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setVersionsOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Folder Picker */}
       {folderPicker && (

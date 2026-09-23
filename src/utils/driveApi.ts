@@ -759,3 +759,79 @@ export async function fetchBackupData(): Promise<BackupData> {
     settings: { storageName: 'My Storage', theme: 'light' },
   };
 }
+
+// ============ Versioning ============
+
+export interface FileVersion {
+  id: string;
+  storage_node_id: string;
+  google_file_id: string;
+  version_number: number;
+  filename: string;
+  mime_type: string | null;
+  size: number;
+  content_hash: string | null;
+  archived_google_file_id: string | null;
+  created_at: string;
+}
+
+export async function fetchFileVersions(fileId: string, nodeId: string): Promise<FileVersion[]> {
+  const params = new URLSearchParams({ fileId, nodeId });
+  const res = await fetch(`${driveOpsUrl()}/versions?${params}`, {
+    headers: getHeaders(),
+    credentials: 'omit',
+  });
+  if (!res.ok) throw new Error(`Failed to fetch versions (${res.status})`);
+  const data = await res.json();
+  return (data.versions || []) as FileVersion[];
+}
+
+export async function restoreFileVersion(versionId: string): Promise<void> {
+  const res = await fetch(`${driveOpsUrl()}/versions/restore`, {
+    method: 'POST',
+    headers: getHeaders(),
+    credentials: 'omit',
+    body: JSON.stringify({ versionId }),
+  });
+  if (!res.ok) throw new Error(`Restore failed (${res.status})`);
+}
+
+// ============ Deduplication ============
+
+export interface DedupCheckResult {
+  exists: boolean;
+  match?: {
+    hash: string;
+    storageNodeId: string;
+    googleFileId: string;
+    filename: string;
+    size: number;
+    drive: string;
+  };
+}
+
+export async function checkDedup(hash: string, size: number): Promise<DedupCheckResult> {
+  const params = new URLSearchParams({ hash, size: String(size) });
+  const res = await fetch(`${driveOpsUrl()}/dedup/check?${params}`, {
+    headers: getHeaders(),
+    credentials: 'omit',
+  });
+  if (!res.ok) return { exists: false };
+  return await res.json();
+}
+
+export async function registerHash(
+  hash: string,
+  nodeId: string,
+  googleFileId: string,
+  filename: string,
+  size: number,
+  mimeType: string,
+): Promise<void> {
+  await fetch(`${driveOpsUrl()}/dedup/register`, {
+    method: 'POST',
+    headers: getHeaders(),
+    credentials: 'omit',
+    body: JSON.stringify({ hash, nodeId, googleFileId, filename, size, mimeType }),
+  });
+}

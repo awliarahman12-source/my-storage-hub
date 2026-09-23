@@ -10,6 +10,8 @@ import {
 } from '@/data/appData';
 import { deleteStorageNode, getOAuthUrl } from '@/utils/storageNodes';
 import * as driveApi from '@/utils/driveApi';
+import { computeFileHash } from '@/utils/fileHash';
+import * as uploadQueue from '@/utils/uploadQueue';
 import type { AppContextValue } from './AppContext';
 
 import type { PasscodeError } from '@/utils/driveApi';
@@ -291,7 +293,6 @@ export function useAppState(): AppContextValue {
     if (!tokens) return;
     setLoadingMoreFiles(true);
     try {
-      // Pick the first available page token to fetch next page
       const firstToken = Object.values(tokens)[0];
       const result = await driveApi.fetchFiles({ ...buildFetchOpts(), pageToken: firstToken });
       setDriveFiles((prev) => {
@@ -308,14 +309,12 @@ export function useAppState(): AppContextValue {
       setHasMoreFiles(result.hasMore);
       pageTokensRef.current = result.pageTokens;
     } catch {
-      // Don't clear existing files on load-more error
       setHasMoreFiles(false);
     } finally {
       setLoadingMoreFiles(false);
     }
   }, [buildFetchOpts, loadingMoreFiles, hasMoreFiles]);
 
-  // Reset folder navigation when switching views (not when navigating folders within same view)
   useEffect(() => {
     if (currentView !== 'files' && currentView !== 'dashboard') {
       setCurrentFolderId('root');
@@ -391,7 +390,6 @@ export function useAppState(): AppContextValue {
 
   const copyDriveFile = useCallback(async (fileId: string, nodeId: string, destNodeId?: string, destFolderId?: string) => {
     const copied = await driveApi.copyFile(fileId, nodeId, destNodeId, destFolderId);
-    // If copied to same view, add to local list; otherwise just refresh
     if (!destNodeId || destNodeId === nodeId) {
       setDriveFiles((prev) => [...prev, copied]);
     } else {
@@ -402,7 +400,6 @@ export function useAppState(): AppContextValue {
 
   const moveDriveFile = useCallback(async (fileId: string, nodeId: string, newParentId: string, destNodeId?: string) => {
     await driveApi.moveFile(fileId, nodeId, newParentId, destNodeId);
-    // Remove from current view since it moved away
     setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('File moved');
   }, [toast]);
@@ -429,13 +426,9 @@ export function useAppState(): AppContextValue {
 
   const MAX_CONCURRENT_UPLOADS = 5;
 
-  // Store File objects for retry-without-reselect
   const fileRegistry = useRef<Map<string, File>>(new Map());
-  // Track AbortControllers for cancel support
   const uploadAbortControllers = useRef<Map<string, AbortController>>(new Map());
-  // Queue of session IDs waiting to be processed
-  const uploadQueue = useRef<string[]>([]);
-  // Track how many uploads are currently active
+  const uploadQueueRef = useRef<string[]>([]);
   const activeUploadCount = useRef(0);
 
   const refreshUploadSessions = useCallback(async () => {
@@ -448,9 +441,8 @@ export function useAppState(): AppContextValue {
   }, []);
 
   const processQueue = useCallback(async () => {
-    // Process queued items up to concurrency limit
-    while (uploadQueue.current.length > 0 && activeUploadCount.current < MAX_CONCURRENT_UPLOADS) {
-      const sessionId = uploadQueue.current.shift();
+    while (uploadQueueRef.current.length > 0 && activeUploadCount.current < MAX_CONCURRENT_UPLOADS) {
+      const sessionId = uploadQueueRef.current.shift();
       if (!sessionId) break;
       const file = fileRegistry.current.get(sessionId);
       if (!file) continue;
@@ -481,6 +473,10 @@ export function useAppState(): AppContextValue {
           setUploadSessions((prev) => prev.map((s) =>
             s.id === sessionId ? { ...s, status: 'completed', progress: 100 } : s
           ));
+          // Remove from IndexedDB queue
+          if (uploadQueue.isIndexedDBSupported()) {
+            void uploadQueue.deletePendingUpload(sessionId);
+          }
           toast(file.name + ' uploaded');
           void refreshFiles();
         } catch (err) {
@@ -497,7 +493,6 @@ export function useAppState(): AppContextValue {
         } finally {
           uploadAbortControllers.current.delete(sessionId);
           activeUploadCount.current--;
-          // Process next queued item
           void processQueue();
         }
       })();
@@ -522,7 +517,6 @@ export function useAppState(): AppContextValue {
       const mimeType = file.type || 'application/octet-stream';
 
       try {
-        // Route the file
         let nodeId: string;
         if (targetNodeId) {
           nodeId = targetNodeId;
@@ -531,7 +525,6 @@ export function useAppState(): AppContextValue {
           nodeId = route.nodeId;
         }
 
-        // Init upload session
         const session = await driveApi.initUpload(
           nodeId,
           cleanName,
@@ -540,21 +533,34 @@ export function useAppState(): AppContextValue {
           currentFolderId !== 'root' ? currentFolderId : undefined,
         );
 
-        // Register file for this session
         fileRegistry.current.set(session.id, file);
 
-        // Add to UI with queued status
-        setUploadSessions((prev) => [...prev.filter((s) => s.id !== session.id), { ...session, status: 'queued', progress: 0 }]);
+        // Persist to IndexedDB for resume-after-reload
+        if (uploadQueue.isIndexedDBSupported()) {
+          try {
+            await uploadQueue.savePendingUpload({
+              sessionId: session.id,
+              nodeId,
+              filename: cleanName,
+              mimeType,
+              size: file.size,
+              parentGoogleId: currentFolderId !== 'root' ? currentFolderId : null,
+              blob: file.slice(0, file.size),
+              createdAt: Date.now(),
+            });
+          } catch {
+            // IndexedDB might fail in private mode — ignore
+          }
+        }
 
-        // Enqueue for processing
-        uploadQueue.current.push(session.id);
+        setUploadSessions((prev) => [...prev.filter((s) => s.id !== session.id), { ...session, status: 'queued', progress: 0 }]);
+        uploadQueueRef.current.push(session.id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to queue upload';
         toast(file.name + ': ' + msg);
       }
     }
 
-    // Start processing the queue
     void processQueue();
   }, [storageNodes, routingMode, currentFolderId, toast, processQueue]);
 
@@ -566,13 +572,11 @@ export function useAppState(): AppContextValue {
     }
 
     try {
-      // Reset the session in the backend
       await driveApi.retryUpload(sessionId);
       setUploadSessions((prev) => prev.map((s) =>
         s.id === sessionId ? { ...s, status: 'queued', progress: 0, errorMessage: null } : s
       ));
-      // Re-enqueue for processing
-      uploadQueue.current.push(sessionId);
+      uploadQueueRef.current.push(sessionId);
       void processQueue();
     } catch {
       toast('Retry failed');
@@ -585,8 +589,7 @@ export function useAppState(): AppContextValue {
       controller.abort();
       uploadAbortControllers.current.delete(sessionId);
     }
-    // Remove from queue if still queued
-    uploadQueue.current = uploadQueue.current.filter((id) => id !== sessionId);
+    uploadQueueRef.current = uploadQueueRef.current.filter((id) => id !== sessionId);
     try {
       await driveApi.cancelUpload(sessionId);
       setUploadSessions((prev) => prev.map((s) =>
@@ -598,8 +601,10 @@ export function useAppState(): AppContextValue {
   }, []);
 
   const clearUploadSession = useCallback(async (sessionId: string) => {
-    // Remove from queue if present
-    uploadQueue.current = uploadQueue.current.filter((id) => id !== sessionId);
+    if (uploadQueue.isIndexedDBSupported()) {
+      void uploadQueue.deletePendingUpload(sessionId);
+    }
+    uploadQueueRef.current = uploadQueueRef.current.filter((id) => id !== sessionId);
     fileRegistry.current.delete(sessionId);
     try {
       await driveApi.deleteUploadSession(sessionId);
@@ -611,6 +616,30 @@ export function useAppState(): AppContextValue {
 
   const checkDuplicateFile = useCallback(async (filename: string, parentGoogleId?: string) => {
     return await driveApi.checkDuplicate(filename, parentGoogleId);
+  }, []);
+
+  // ============ Versioning (Phase 10) ============
+
+  const fetchVersions = useCallback(async (fileId: string, nodeId: string) => {
+    return await driveApi.fetchFileVersions(fileId, nodeId);
+  }, []);
+
+  const restoreVersion = useCallback(async (versionId: string) => {
+    await driveApi.restoreFileVersion(versionId);
+    toast('Version restored');
+    void refreshFiles();
+  }, [toast, refreshFiles]);
+
+  // ============ Deduplication (Phase 10) ============
+
+  const checkDeduplication = useCallback(async (file: File) => {
+    try {
+      const hash = await computeFileHash(file);
+      const result = await driveApi.checkDedup(hash, file.size);
+      return { ...result, hash };
+    } catch {
+      return { exists: false };
+    }
   }, []);
 
   const resetData = useCallback(() => {
@@ -642,6 +671,34 @@ export function useAppState(): AppContextValue {
     URL.revokeObjectURL(a.href);
     toast('Backup JSON exported');
   }, [storageName, storageNodes, storagePool, driveFiles, uploadSessions, routingMode, toast]);
+
+  // Resume pending uploads from IndexedDB on mount
+  useEffect(() => {
+    if (!authed) return;
+    if (!uploadQueue.isIndexedDBSupported()) return;
+
+    void (async () => {
+      try {
+        const pending = await uploadQueue.getAllPendingUploads();
+        if (pending.length === 0) return;
+
+        toast(`${pending.length} upload(s) interrupted — resuming...`);
+
+        for (const item of pending) {
+          try {
+            const file = new File([item.blob], item.filename, { type: item.mimeType });
+            fileRegistry.current.set(item.sessionId, file);
+            uploadQueueRef.current.push(item.sessionId);
+          } catch {
+            await uploadQueue.deletePendingUpload(item.sessionId);
+          }
+        }
+        void processQueue();
+      } catch {
+        // ignore
+      }
+    })();
+  }, [authed, toast, processQueue]);
 
   return {
     theme,
@@ -708,5 +765,8 @@ export function useAppState(): AppContextValue {
     checkDuplicateFile,
     resetData,
     exportData,
+    fetchVersions,
+    restoreVersion,
+    checkDeduplication,
   };
 }
