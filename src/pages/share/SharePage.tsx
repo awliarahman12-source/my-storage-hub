@@ -100,6 +100,13 @@ export function SharePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, passwordOk, info, currentFolderId]);
 
+    // Auto-open lightbox for single-file share
+  useEffect(() => {
+    if (info?.kind === 'file' && files.length === 1 && lightboxIndex < 0) {
+      setLightboxIndex(0);
+    }
+  }, [info?.kind, files.length, lightboxIndex]);
+
   const loadFiles = async (path: string) => {
     if (!token) return;
     setFilesLoading(true);
