@@ -257,8 +257,8 @@ export function ShareLightbox({
 
   if (!active) return null;
 
-  const streamUrl = shareStreamUrl(token, active.id, password);
-  const downloadUrl = shareDownloadUrl(token, active.id, password);
+  const streamUrl = shareStreamUrl(token, active.id, password, active.nodeId);
+  const downloadUrl = shareDownloadUrl(token, active.id, password, active.nodeId);
 
   const renderStage = () => {
     if (active.previewKind === 'video') {
@@ -463,9 +463,9 @@ export function ShareDetailsPanel({
   const [authorName, setAuthorName] = useState(() => localStorage.getItem('ms_comment_name') || '');
   const [posting, setPosting] = useState(false);
 
-  const downloadUrl = shareDownloadUrl(token, file.id, password);
+  const downloadUrl = shareDownloadUrl(token, file.id, password, file.nodeId);
   const thumbUrl = file.thumbnailUrl;
-  const streamUrl = shareStreamUrl(token, file.id, password);
+  const streamUrl = shareStreamUrl(token, file.id, password, file.nodeId);
 
   const submit = async () => {
     if (!commentText.trim()) return;
