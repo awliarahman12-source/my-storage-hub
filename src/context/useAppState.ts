@@ -12,6 +12,7 @@ import { deleteStorageNode, getOAuthUrl } from '@/utils/storageNodes';
 import * as driveApi from '@/utils/driveApi';
 import { computeFileHash } from '@/utils/fileHash';
 import * as uploadQueue from '@/utils/uploadQueue';
+import * as notifications from '@/utils/notifications';
 import type { AppContextValue } from './AppContext';
 
 import type { PasscodeError } from '@/utils/driveApi';
@@ -39,6 +40,23 @@ export function useAppState(): AppContextValue {
   const [authed, setAuthed] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [passcodeInitialized, setPasscodeInitialized] = useState(false);
+
+  // Phase 11 state
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(
+    () => notifications.isNotificationSupported() && notifications.getNotificationPermission() === 'granted'
+  );
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+
+  const enableNotifications = useCallback(async (): Promise<boolean> => {
+    const perm = await notifications.requestNotificationPermission();
+    const granted = perm === 'granted';
+    setNotificationsEnabled(granted);
+    if (granted) {
+      notifications.notify('Notifications enabled', { body: 'You will be notified about uploads.' });
+    }
+    return granted;
+  }, []);
 
   const refreshStorageNodes = useCallback(async () => {
     setLoadingNodes(true);
@@ -173,12 +191,10 @@ export function useAppState(): AppContextValue {
     localStorage.setItem('ms_routing', m);
   }, []);
 
-  // Load storage nodes on mount
   useEffect(() => {
     void refreshStorageNodes();
   }, [refreshStorageNodes]);
 
-  // Check for OAuth redirect params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauthResult = params.get('oauth');
@@ -422,7 +438,7 @@ export function useAppState(): AppContextValue {
     void refreshFiles();
   }, [toast, refreshFiles]);
 
-  // ============ Upload Queue (5-concurrent) ============
+  // ============ Upload Queue ============
 
   const MAX_CONCURRENT_UPLOADS = 5;
 
@@ -473,11 +489,13 @@ export function useAppState(): AppContextValue {
           setUploadSessions((prev) => prev.map((s) =>
             s.id === sessionId ? { ...s, status: 'completed', progress: 100 } : s
           ));
-          // Remove from IndexedDB queue
           if (uploadQueue.isIndexedDBSupported()) {
             void uploadQueue.deletePendingUpload(sessionId);
           }
           toast(file.name + ' uploaded');
+          if (notificationsEnabled) {
+            notifications.notifyUploadComplete(file.name);
+          }
           void refreshFiles();
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') {
@@ -489,6 +507,9 @@ export function useAppState(): AppContextValue {
             setUploadSessions((prev) => prev.map((s) =>
               s.id === sessionId ? { ...s, status: 'failed', errorMessage: msg } : s
             ));
+            if (notificationsEnabled) {
+              notifications.notifyUploadFailed(file.name, msg);
+            }
           }
         } finally {
           uploadAbortControllers.current.delete(sessionId);
@@ -497,7 +518,7 @@ export function useAppState(): AppContextValue {
         }
       })();
     }
-  }, [toast, refreshFiles]);
+  }, [toast, refreshFiles, notificationsEnabled]);
 
   const sanitizeFilename = (name: string): string => {
     return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, ' ').trim();
@@ -535,7 +556,6 @@ export function useAppState(): AppContextValue {
 
         fileRegistry.current.set(session.id, file);
 
-        // Persist to IndexedDB for resume-after-reload
         if (uploadQueue.isIndexedDBSupported()) {
           try {
             await uploadQueue.savePendingUpload({
@@ -549,7 +569,7 @@ export function useAppState(): AppContextValue {
               createdAt: Date.now(),
             });
           } catch {
-            // IndexedDB might fail in private mode — ignore
+            // IndexedDB might fail in private mode
           }
         }
 
@@ -618,7 +638,7 @@ export function useAppState(): AppContextValue {
     return await driveApi.checkDuplicate(filename, parentGoogleId);
   }, []);
 
-  // ============ Versioning (Phase 10) ============
+  // ============ Versioning ============
 
   const fetchVersions = useCallback(async (fileId: string, nodeId: string) => {
     return await driveApi.fetchFileVersions(fileId, nodeId);
@@ -630,7 +650,7 @@ export function useAppState(): AppContextValue {
     void refreshFiles();
   }, [toast, refreshFiles]);
 
-  // ============ Deduplication (Phase 10) ============
+  // ============ Deduplication ============
 
   const checkDeduplication = useCallback(async (file: File) => {
     try {
@@ -683,6 +703,9 @@ export function useAppState(): AppContextValue {
         if (pending.length === 0) return;
 
         toast(`${pending.length} upload(s) interrupted — resuming...`);
+        if (notificationsEnabled) {
+          notifications.notifyResumed(pending.length);
+        }
 
         for (const item of pending) {
           try {
@@ -698,7 +721,8 @@ export function useAppState(): AppContextValue {
         // ignore
       }
     })();
-  }, [authed, toast, processQueue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
   return {
     theme,
@@ -768,5 +792,11 @@ export function useAppState(): AppContextValue {
     fetchVersions,
     restoreVersion,
     checkDeduplication,
+    notificationsEnabled,
+    enableNotifications,
+    shortcutsHelpOpen,
+    setShortcutsHelpOpen,
+    globalSearchOpen,
+    setGlobalSearchOpen,
   };
 }

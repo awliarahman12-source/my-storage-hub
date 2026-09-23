@@ -20,7 +20,8 @@ export type ViewName =
   | 'shared-folder'
   | 'trash'
   | 'settings'
-  | 'api';
+  | 'api'
+  | 'folder-sync';
 
 export type Theme = 'light' | 'dark';
 

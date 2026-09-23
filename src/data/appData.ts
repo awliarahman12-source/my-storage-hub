@@ -23,4 +23,5 @@ export const viewMeta: Record<string, { title: string; desc: string }> = {
   'shared-folder': { title: 'Shared Folder', desc: 'Kelola folder yang dibagikan.' },
   settings: { title: 'Settings', desc: 'Kelola workspace, storage, keamanan, dan tampilan.' },
   api: { title: 'API & Integrations', desc: 'Konfigurasi koneksi API dan integrasi.' },
+  'folder-sync': { title: 'Folder Sync', desc: 'Upload folder lokal ke storage pool secara manual.' },
 };

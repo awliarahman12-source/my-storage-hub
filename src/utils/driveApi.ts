@@ -835,3 +835,35 @@ export async function registerHash(
     body: JSON.stringify({ hash, nodeId, googleFileId, filename, size, mimeType }),
   });
 }
+
+// ============ Phase 11: re-exports ============
+
+export {
+  fetchApiKeys,
+  createApiKey,
+  revokeApiKey,
+  AVAILABLE_SCOPES,
+} from './apiKeys';
+export type { ApiKey, CreateApiKeyResult } from './apiKeys';
+
+export {
+  fetchWebhooks,
+  createWebhook,
+  toggleWebhook,
+  deleteWebhook,
+  testWebhook,
+  fetchWebhookDeliveries,
+  AVAILABLE_EVENTS,
+} from './webhooks';
+export type { Webhook, WebhookDelivery } from './webhooks';
+
+export {
+  fetchAnalytics,
+  takeSnapshot,
+} from './analytics';
+export type { AnalyticsSummary, StorageSnapshot } from './analytics';
+
+export {
+  searchDb,
+} from './dbSearch';
+export type { DbSearchOptions, DbSearchResult } from './dbSearch';

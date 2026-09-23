@@ -1,4 +1,4 @@
-// Phase 9+10: Security hardening + versioning + deduplication
+// Phase 11: DB search + Analytics + API Keys + Webhooks + Cross-drive transfer
 import {
   getEnv,
   getSupabase,
@@ -56,7 +56,7 @@ interface DriveFile {
 function getClientId(): string { return getEnv("GOOGLE_CLIENT_ID"); }
 function getClientSecret(): string { return getEnv("GOOGLE_CLIENT_SECRET"); }
 
-// ============ Retry helper for Google API rate limits ============
+// ============ Retry helper ============
 
 async function fetchWithRetry(
   url: string,
@@ -115,18 +115,16 @@ async function refreshAccessToken(node: StorageNodeRow): Promise<string> {
 
 async function getValidAccessToken(node: StorageNodeRow): Promise<string> {
   if (!node.access_token) throw new Error("No access token for this node");
-
   if (node.token_expires_at) {
     const expiresAt = new Date(node.token_expires_at).getTime();
     if (Date.now() > expiresAt - 60000) {
       return await refreshAccessToken(node);
     }
   }
-
   return node.access_token;
 }
 
-// ============ Cross-drive transfer helpers ============
+// ============ Cross-drive helpers ============
 
 const GOOGLE_APPS_PREFIX = "application/vnd.google-apps.";
 const MAX_CROSS_DRIVE_BYTES = 100 * 1024 * 1024;
@@ -137,30 +135,18 @@ function isGoogleNative(mimeType: string): boolean {
 
 function exportMimeFor(mimeType: string): { exportMime: string; ext: string } {
   if (mimeType === "application/vnd.google-apps.document") {
-    return {
-      exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ext: ".docx",
-    };
+    return { exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ext: ".docx" };
   }
   if (mimeType === "application/vnd.google-apps.spreadsheet") {
-    return {
-      exportMime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ext: ".xlsx",
-    };
+    return { exportMime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ext: ".xlsx" };
   }
   if (mimeType === "application/vnd.google-apps.presentation") {
-    return {
-      exportMime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      ext: ".pptx",
-    };
+    return { exportMime: "application/vnd.openxmlformats-officedocument.presentationml.presentation", ext: ".pptx" };
   }
   if (mimeType === "application/vnd.google-apps.drawing") {
     return { exportMime: "image/png", ext: ".png" };
   }
-  return {
-    exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ext: ".docx",
-  };
+  return { exportMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ext: ".docx" };
 }
 
 async function fetchDriveContent(
@@ -180,9 +166,7 @@ async function fetchDriveContent(
       throw new Error(`Export failed (${res.status}): ${err}`);
     }
     const blob = await res.blob();
-    const filename = originalName.toLowerCase().endsWith(ext)
-      ? originalName
-      : originalName + ext;
+    const filename = originalName.toLowerCase().endsWith(ext) ? originalName : originalName + ext;
     return { blob, mimeType: exportMime, filename };
   }
 
@@ -208,17 +192,12 @@ async function uploadToDrive(
   const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const isXlsx = mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const isPptx = mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
   const needsConvert = isDocx || isXlsx || isPptx;
   const targetMime = isDocx ? "application/vnd.google-apps.document"
     : isXlsx ? "application/vnd.google-apps.spreadsheet"
     : isPptx ? "application/vnd.google-apps.presentation"
     : mimeType;
-
-  const uploadName = needsConvert
-    ? filename.replace(/\.(docx|xlsx|pptx)$/i, "")
-    : filename;
-
+  const uploadName = needsConvert ? filename.replace(/\.(docx|xlsx|pptx)$/i, "") : filename;
   const metadata: Record<string, unknown> = {
     name: uploadName,
     mimeType: targetMime,
@@ -292,7 +271,7 @@ async function uploadToDrive(
   return await res.json() as DriveFile;
 }
 
-// ============ Existing helpers ============
+// ============ Storage helpers ============
 
 async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: number, pageToken?: string, orderBy?: string): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
   const token = await getValidAccessToken(node);
@@ -317,15 +296,13 @@ async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: nu
       });
       if (!retryRes.ok) {
         const retryErr = await retryRes.text().catch(() => "");
-        console.error(`Drive API list failed after refresh for node ${node.id} (${retryRes.status}): ${retryErr}`);
+        console.error(`Drive API list failed after refresh (${retryRes.status}): ${retryErr}`);
         throw new Error(`Drive API error (${retryRes.status})`);
       }
       return await retryRes.json();
     }
-    console.error(`Drive API list failed for node ${node.id} (${res.status}): ${errText}`);
     throw new Error(`Drive API error (${res.status})`);
   }
-
   return await res.json();
 }
 
@@ -334,11 +311,9 @@ async function getDriveFile(node: StorageNodeRow, fileId: string): Promise<Drive
   const params = new URLSearchParams({
     fields: "id,name,mimeType,size,modifiedTime,createdTime,parents,thumbnailLink,webContentLink,webViewLink,starred,trashed,shared,iconLink",
   });
-
   const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-
   if (!res.ok) throw new Error(`Drive API error (${res.status})`);
   return await res.json();
 }
@@ -349,7 +324,6 @@ async function getStorageNode(supabase: ReturnType<typeof getSupabase>, nodeId: 
     .select("*")
     .eq("id", nodeId)
     .maybeSingle();
-
   if (error || !data) throw new Error("Storage node not found");
   return data as StorageNodeRow;
 }
@@ -359,7 +333,6 @@ async function getAllStorageNodes(supabase: ReturnType<typeof getSupabase>): Pro
     .from("storage_nodes")
     .select("*")
     .order("priority", { ascending: true });
-
   if (error) throw new Error("Failed to fetch storage nodes");
   return (data || []) as StorageNodeRow[];
 }
@@ -436,6 +409,125 @@ function publicFile(file: DriveFile, node: StorageNodeRow) {
   };
 }
 
+// ============ API Key helpers ============
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateApiKey(): string {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  for (let i = 0; i < arr.length; i++) {
+    result += chars[arr[i] % chars.length];
+  }
+  return "msk_" + result;
+}
+
+// ============ Webhook helpers ============
+
+async function signWebhookPayload(secret: string, body: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(body));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function dispatchWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const { data: hooks } = await supabase
+      .from("webhooks")
+      .select("*")
+      .eq("enabled", true)
+      .contains("events", [eventType]);
+
+    if (!hooks || hooks.length === 0) return;
+
+    for (const hook of hooks) {
+      const body = JSON.stringify({
+        event: eventType,
+        timestamp: new Date().toISOString(),
+        data: payload,
+      });
+      const signature = await signWebhookPayload(hook.secret, body);
+
+      // Record delivery
+      const { data: delivery } = await supabase
+        .from("webhook_deliveries")
+        .insert({
+          webhook_id: hook.id,
+          event_type: eventType,
+          payload,
+          status: "pending",
+        })
+        .select("*")
+        .single();
+
+      // Fire and forget
+      void (async () => {
+        try {
+          const res = await fetch(hook.url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Webhook-Signature": `sha256=${signature}`,
+              "X-Webhook-Event": eventType,
+            },
+            body,
+          });
+          const responseBody = await res.text().catch(() => "");
+          await supabase.from("webhook_deliveries").update({
+            status: res.ok ? "delivered" : "failed",
+            response_code: res.status,
+            response_body: responseBody.substring(0, 500),
+            delivered_at: new Date().toISOString(),
+            attempts: 1,
+          }).eq("id", delivery?.id || "");
+          await supabase.from("webhooks").update({
+            last_triggered_at: new Date().toISOString(),
+            failure_count: res.ok ? 0 : (hook.failure_count || 0) + 1,
+          }).eq("id", hook.id);
+        } catch (err) {
+          await supabase.from("webhook_deliveries").update({
+            status: "failed",
+            response_body: err instanceof Error ? err.message : "Network error",
+            attempts: 1,
+          }).eq("id", delivery?.id || "");
+        }
+      })();
+    }
+  } catch {
+    // Webhooks are best-effort
+  }
+}
+
+// ============ Session helpers ============
+
+interface SessionInfo {
+  id: string;
+  token_hash: string;
+  expires_at: string;
+  revoked: boolean;
+  ip_address: string | null;
+  user_agent: string | null;
+  device_id: string | null;
+  created_at: string;
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
   const ch = corsHeaders(origin);
@@ -448,18 +540,56 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/drive-ops/, "");
 
-  const session = await validateSession(req);
-  if (!session) {
-    return errorResponse(401, "Unauthorized", origin);
+  // ============ API key auth OR session auth ============
+  const apiKeyHeader = req.headers.get("X-API-Key");
+  let session: SessionInfo | null = null;
+  let authedViaApiKey = false;
+  let apiKeyScopes: string[] = [];
+
+  if (apiKeyHeader) {
+    const keyHash = await sha256Hex(apiKeyHeader);
+    const supabase = getSupabase();
+    const { data: key } = await supabase
+      .from("api_keys")
+      .select("*")
+      .eq("key_hash", keyHash)
+      .eq("revoked", false)
+      .maybeSingle();
+
+    if (key) {
+      if (key.expires_at && new Date(key.expires_at) < new Date()) {
+        return errorResponse(401, "API key expired", origin);
+      }
+      authedViaApiKey = true;
+      apiKeyScopes = key.scopes || [];
+      void supabase.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", key.id);
+    } else {
+      return errorResponse(401, "Invalid API key", origin);
+    }
+  } else {
+    session = await validateSession(req);
+    if (!session) {
+      return errorResponse(401, "Unauthorized", origin);
+    }
   }
+
+  const requireScope = (scope: string) => {
+    if (!authedViaApiKey) return;
+    if (apiKeyScopes.includes("admin")) return;
+    if (!apiKeyScopes.includes(scope)) {
+      throw new HttpError(403, `API key missing scope: ${scope}`);
+    }
+  };
 
   try {
     const supabase = getSupabase();
     const nodes = await getAllStorageNodes(supabase);
     const connectedNodes = nodes.filter((n) => n.status === "connected" && n.access_token && n.enabled !== false);
 
-    // GET /drive-ops/files
+    // ============ Files ============
+
     if (path === "/files" && req.method === "GET") {
+      requireScope("files:read");
       const folderId = url.searchParams.get("folderId") || "root";
       const pageSize = Math.min(Number(url.searchParams.get("pageSize") || 100), 200);
       const pageToken = url.searchParams.get("pageToken") || undefined;
@@ -488,14 +618,9 @@ Deno.serve(async (req: Request) => {
         } else if (!trashed && !starredOnly && !sharedOnly) {
           query += " and 'root' in parents";
         }
-
-        if (typeFilter === "img") {
-          query += " and mimeType contains 'image/'";
-        } else if (typeFilter === "video") {
-          query += " and mimeType contains 'video/'";
-        } else if (typeFilter === "folder") {
-          query += " and mimeType = 'application/vnd.google-apps.folder'";
-        }
+        if (typeFilter === "img") query += " and mimeType contains 'image/'";
+        else if (typeFilter === "video") query += " and mimeType contains 'video/'";
+        else if (typeFilter === "folder") query += " and mimeType = 'application/vnd.google-apps.folder'";
 
         try {
           const result = await fetchDriveFiles(node, query, pageSize, pageToken, orderBy);
@@ -516,18 +641,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/search
+    // ============ Search (Google API) ============
+
     if (path === "/search" && req.method === "GET") {
+      requireScope("files:read");
       const q = url.searchParams.get("q") || "";
       if (!q || connectedNodes.length === 0) {
         return new Response(JSON.stringify({ files: [] }), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       const escapedQ = q.replace(/'/g, "\\'");
       const allFiles: ReturnType<typeof publicFile>[] = [];
-
       for (const node of connectedNodes) {
         const query = `name contains '${escapedQ}' and trashed = false`;
         try {
@@ -537,14 +662,95 @@ Deno.serve(async (req: Request) => {
           }
         } catch { /* skip */ }
       }
-
       return new Response(JSON.stringify({ files: allFiles }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/check-duplicate
+    // ============ Search DB (Phase 11 - D) ============
+
+    if (path === "/search-db" && req.method === "GET") {
+      requireScope("files:read");
+      const q = url.searchParams.get("q") || "";
+      const type = url.searchParams.get("type");
+      const minSize = url.searchParams.get("minSize");
+      const maxSize = url.searchParams.get("maxSize");
+      const modifiedAfter = url.searchParams.get("modifiedAfter");
+      const starred = url.searchParams.get("starred") === "true";
+      const limit = Math.min(Number(url.searchParams.get("limit") || 100), 200);
+
+      if (!q.trim()) {
+        return new Response(JSON.stringify({ results: [] }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      // Build tsquery from input
+      const tsQuery = q
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => word.replace(/[^\w]/g, "") + ":*")
+        .join(" & ");
+
+      let query = supabase
+        .from("file_mappings")
+        .select("id, storage_node_id, google_file_id, filename, mime_type, size, starred, trashed, parent_google_id, updated_at")
+        .eq("trashed", false)
+        .limit(limit);
+
+      if (tsQuery) {
+        query = query.textSearch("search_vector", tsQuery, { config: "simple" });
+      }
+
+      if (type === "img") query = query.like("mime_type", "image/%");
+      else if (type === "video") query = query.like("mime_type", "video/%");
+      else if (type === "pdf") query = query.eq("mime_type", "application/pdf");
+      else if (type === "audio") query = query.like("mime_type", "audio/%");
+      else if (type === "folder") query = query.eq("mime_type", "application/vnd.google-apps.folder");
+
+      if (minSize) query = query.gte("size", Number(minSize));
+      if (maxSize) query = query.lte("size", Number(maxSize));
+      if (modifiedAfter) query = query.gte("updated_at", modifiedAfter);
+      if (starred) query = query.eq("starred", true);
+
+      const { data, error } = await query;
+      if (error) {
+        console.error("Search DB error:", error.message);
+        return new Response(JSON.stringify({ results: [], error: error.message }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      // Enrich with node info
+      const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+      const results = (data || []).map((row) => {
+        const node = nodeMap.get(row.storage_node_id);
+        return {
+          id: row.google_file_id,
+          nodeId: row.storage_node_id,
+          name: row.filename,
+          mimeType: row.mime_type || "application/octet-stream",
+          size: Number(row.size || 0),
+          modified: row.updated_at,
+          drive: node?.display_name || node?.email || "Unknown",
+          driveEmail: node?.email || "",
+          thumbnail: null,
+          isFolder: row.mime_type === "application/vnd.google-apps.folder",
+          starred: row.starred || false,
+          shared: false,
+        };
+      });
+
+      return new Response(JSON.stringify({ results }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============ Check duplicate ============
+
     if (path === "/check-duplicate" && req.method === "GET") {
+      requireScope("files:read");
       const filename = url.searchParams.get("filename") || "";
       const parentGoogleId = url.searchParams.get("parentGoogleId");
       if (!filename) {
@@ -552,43 +758,33 @@ Deno.serve(async (req: Request) => {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       const escapedName = filename.replace(/'/g, "\\'");
       const query = parentGoogleId && parentGoogleId !== "root"
         ? `name = '${escapedName}' and '${parentGoogleId}' in parents and trashed = false`
         : `name = '${escapedName}' and trashed = false`;
-
       const foundNodes: { nodeId: string; fileId: string; drive: string }[] = [];
-
       for (const node of connectedNodes) {
         try {
           const { files } = await fetchDriveFiles(node, query, 5);
           for (const f of files) {
-            foundNodes.push({
-              nodeId: node.id,
-              fileId: f.id,
-              drive: node.display_name || node.email,
-            });
+            foundNodes.push({ nodeId: node.id, fileId: f.id, drive: node.display_name || node.email });
           }
         } catch { /* skip */ }
       }
-
-      return new Response(JSON.stringify({
-        exists: foundNodes.length > 0,
-        nodes: foundNodes,
-      }), {
+      return new Response(JSON.stringify({ exists: foundNodes.length > 0, nodes: foundNodes }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/nodes
+    // ============ Nodes ============
+
     if (path === "/nodes" && req.method === "GET") {
+      requireScope("nodes:read");
       const nodesWithQuota = await Promise.all(
         nodes.map(async (n) => {
           let cap = n.cap;
           let used = n.used;
           let quotaAvailable = false;
-
           if (n.status === "connected" && n.access_token) {
             const quota = await getDriveQuota(n);
             if (quota.total !== null) {
@@ -599,7 +795,6 @@ Deno.serve(async (req: Request) => {
               used = quota.used / (1024 * 1024 * 1024);
             }
           }
-
           return {
             id: n.id,
             provider: n.provider,
@@ -618,26 +813,24 @@ Deno.serve(async (req: Request) => {
           };
         })
       );
-
       return new Response(JSON.stringify({ nodes: nodesWithQuota }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/pool
+    // ============ Pool ============
+
     if (path === "/pool" && req.method === "GET") {
       let totalCap = 0;
       let totalUsed = 0;
       let connectedCount = 0;
       let healthyCount = 0;
       let quotaAvailable = false;
-
       for (const n of nodes) {
         if (n.status === "connected") {
           connectedCount++;
           let cap = n.cap;
           let used = n.used;
-
           if (n.access_token) {
             const quota = await getDriveQuota(n);
             if (quota.total !== null) {
@@ -649,12 +842,10 @@ Deno.serve(async (req: Request) => {
             }
             healthyCount++;
           }
-
           totalCap += cap;
           totalUsed += used;
         }
       }
-
       return new Response(JSON.stringify({
         connectedDrives: connectedCount,
         healthyDrives: healthyCount,
@@ -667,66 +858,61 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-ops/file/:id
+    // ============ File detail ============
+
     const fileMatch = path.match(/^\/file\/([^/]+)$/);
     if (fileMatch && req.method === "GET") {
+      requireScope("files:read");
       const fileId = fileMatch[1];
       const nodeId = url.searchParams.get("nodeId");
       if (!nodeId) throw new HttpError(400, "nodeId is required");
-
       const node = await getStorageNode(supabase, nodeId);
       const file = await getDriveFile(node, fileId);
-
       return new Response(JSON.stringify(publicFile(file, node)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/download/:id
+    // ============ Download ============
+
     const downloadMatch = path.match(/^\/download\/([^/]+)$/);
     if (downloadMatch && req.method === "GET") {
+      requireScope("files:read");
       const fileId = downloadMatch[1];
       const nodeId = url.searchParams.get("nodeId");
       if (!nodeId) throw new HttpError(400, "nodeId is required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const file = await getDriveFile(node, fileId);
       const filename = file.name;
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok) throw new HttpError(res.status, `Download failed (${res.status})`);
-
       const headers = new Headers(ch);
       headers.set("Content-Type", file.mimeType || "application/octet-stream");
       headers.set("Content-Disposition", `attachment; filename="${filename}"`);
-
       return new Response(res.body, { headers });
     }
 
-    // GET /drive-ops/preview/:id
+    // ============ Preview ============
+
     const previewMatch = path.match(/^\/preview\/([^/]+)$/);
     if (previewMatch && req.method === "GET") {
+      requireScope("files:read");
       const fileId = previewMatch[1];
       const nodeId = url.searchParams.get("nodeId");
       if (!nodeId) throw new HttpError(400, "nodeId is required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
       const file = await getDriveFile(node, fileId);
 
       if (file.mimeType.startsWith("application/vnd.google-apps.")) {
         const exportType = "application/pdf";
-
         const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportType}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new HttpError(res.status, `Export failed (${res.status})`);
-
         const headers = new Headers(ch);
         headers.set("Content-Type", exportType);
         return new Response(res.body, { headers });
@@ -735,48 +921,43 @@ Deno.serve(async (req: Request) => {
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok) throw new HttpError(res.status, `Preview failed (${res.status})`);
-
       const headers = new Headers(ch);
       headers.set("Content-Type", file.mimeType || "application/octet-stream");
       headers.set("Cache-Control", "private, max-age=3600");
       return new Response(res.body, { headers });
     }
 
-    // GET /drive-ops/text-preview/:id
+    // ============ Text preview ============
+
     const textPreviewMatch = path.match(/^\/text-preview\/([^/]+)$/);
     if (textPreviewMatch && req.method === "GET") {
+      requireScope("files:read");
       const fileId = textPreviewMatch[1];
       const nodeId = url.searchParams.get("nodeId");
       if (!nodeId) throw new HttpError(400, "nodeId is required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok) throw new HttpError(res.status, `Text preview failed (${res.status})`);
-
       const text = await res.text();
       const truncated = text.length > 100000 ? text.substring(0, 100000) + "\n\n... (truncated)" : text;
-
       return new Response(JSON.stringify({ content: truncated }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/folders
+    // ============ Folders ============
+
     if (path === "/folders" && req.method === "GET") {
+      requireScope("files:read");
       const nodeId = url.searchParams.get("nodeId");
       const listAll = url.searchParams.get("all") === "true";
       if (!nodeId && !listAll) throw new HttpError(400, "nodeId is required or all=true");
-
       const nodesToList = listAll ? nodes.filter((n) => n.status === "connected") : [await getStorageNode(supabase, nodeId!)];
       const allFolders: { id: string; name: string; parents?: string[]; nodeId: string; driveName: string }[] = [];
-
       for (const n of nodesToList) {
         try {
           const token = await getValidAccessToken(n);
@@ -795,119 +976,105 @@ Deno.serve(async (req: Request) => {
               allFolders.push({ ...f, nodeId: n.id, driveName: n.display_name || n.email || n.id });
             }
           }
-        } catch (err) {
-          console.error(`Folders list failed for node ${n.id}:`, err instanceof Error ? err.message : String(err));
-        }
+        } catch { /* skip */ }
       }
-
       return new Response(JSON.stringify({ folders: allFolders }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/rename
+    // ============ Rename ============
+
     if (path === "/rename" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, newName } = body;
       if (!fileId || !nodeId || !newName) throw new HttpError(400, "fileId, nodeId, newName required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName }),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Rename failed (${res.status})`);
       const updated = await res.json();
-
+      void dispatchWebhook(supabase, "file.renamed", { fileId, nodeId, newName });
       return new Response(JSON.stringify(publicFile(updated, node)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/trash
+    // ============ Trash / Untrash / Star ============
+
     if (path === "/trash" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ trashed: true }),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Trash failed (${res.status})`);
-
+      void dispatchWebhook(supabase, "file.deleted", { fileId, nodeId });
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/untrash
     if (path === "/untrash" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ trashed: false }),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Untrash failed (${res.status})`);
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/star
     if (path === "/star" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, starred } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ starred: starred !== false }),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Star failed (${res.status})`);
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/copy
+    // ============ Copy ============
+
     if (path === "/copy" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, destNodeId, destFolderId } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
       if (!destNodeId || destNodeId === nodeId) {
         const copyBody: Record<string, unknown> = {};
-        if (destFolderId && destFolderId !== "root") {
-          copyBody.parents = [destFolderId];
-        }
+        if (destFolderId && destFolderId !== "root") copyBody.parents = [destFolderId];
         const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -926,32 +1093,12 @@ Deno.serve(async (req: Request) => {
       const sourceMeta = await getDriveFile(node, fileId);
       const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
       if (sizeBytes > MAX_CROSS_DRIVE_BYTES) {
-        throw new HttpError(
-          413,
-          `File too large for cross-drive transfer (max 100 MB via server). ` +
-          `File size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. ` +
-          `Download and re-upload manually.`,
-        );
+        throw new HttpError(413, `File too large for cross-drive transfer (max 100 MB). Size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB.`);
       }
-
       const destNode = await getStorageNode(supabase, destNodeId);
       const destToken = await getValidAccessToken(destNode);
-
-      const { blob, mimeType, filename } = await fetchDriveContent(
-        token,
-        fileId,
-        sourceMeta.name,
-        sourceMeta.mimeType,
-      );
-
-      const uploaded = await uploadToDrive(
-        destToken,
-        filename,
-        mimeType,
-        destFolderId || null,
-        blob,
-      );
-
+      const { blob, mimeType, filename } = await fetchDriveContent(token, fileId, sourceMeta.name, sourceMeta.mimeType);
+      const uploaded = await uploadToDrive(destToken, filename, mimeType, destFolderId || null, blob);
       await supabase.from("file_mappings").upsert({
         storage_node_id: destNode.id,
         google_file_id: uploaded.id,
@@ -961,18 +1108,18 @@ Deno.serve(async (req: Request) => {
         parent_google_id: uploaded.parents?.[0] || null,
         is_folder: false,
       }, { onConflict: "storage_node_id,google_file_id" });
-
       return new Response(JSON.stringify(publicFile(uploaded, destNode)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/move
+    // ============ Move ============
+
     if (path === "/move" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, newParentId, destNodeId } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
@@ -980,49 +1127,25 @@ Deno.serve(async (req: Request) => {
         const sourceMeta = await getDriveFile(node, fileId);
         const sizeBytes = sourceMeta.size ? Number(sourceMeta.size) : 0;
         if (sizeBytes > MAX_CROSS_DRIVE_BYTES) {
-          throw new HttpError(
-            413,
-            `File too large for cross-drive transfer (max 100 MB via server). ` +
-            `File size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. ` +
-            `Download and re-upload manually.`,
-          );
+          throw new HttpError(413, `File too large for cross-drive transfer (max 100 MB). Size: ${(sizeBytes / 1024 / 1024).toFixed(1)} MB.`);
         }
-
         const destNode = await getStorageNode(supabase, destNodeId);
         const destToken = await getValidAccessToken(destNode);
-
-        const { blob, mimeType, filename } = await fetchDriveContent(
-          token,
-          fileId,
-          sourceMeta.name,
-          sourceMeta.mimeType,
-        );
-
-        const uploaded = await uploadToDrive(
-          destToken,
-          filename,
-          mimeType,
-          newParentId || null,
-          blob,
-        );
+        const { blob, mimeType, filename } = await fetchDriveContent(token, fileId, sourceMeta.name, sourceMeta.mimeType);
+        const uploaded = await uploadToDrive(destToken, filename, mimeType, newParentId || null, blob);
 
         const delRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!delRes.ok && delRes.status !== 204) {
-          console.error(`Cross-drive move: failed to delete source (${delRes.status})`);
           return new Response(JSON.stringify({
             success: true,
             crossDrive: true,
-            warning: "Copied to destination but source could not be deleted",
+            warning: "Copied but source could not be deleted",
             newFile: publicFile(uploaded, destNode),
-          }), {
-            status: 207,
-            headers: { ...ch, "Content-Type": "application/json" },
-          });
+          }), { status: 207, headers: { ...ch, "Content-Type": "application/json" } });
         }
-
         await supabase.from("file_mappings").upsert({
           storage_node_id: destNode.id,
           google_file_id: uploaded.id,
@@ -1032,13 +1155,8 @@ Deno.serve(async (req: Request) => {
           parent_google_id: uploaded.parents?.[0] || null,
           is_folder: false,
         }, { onConflict: "storage_node_id,google_file_id" });
-
-        await supabase
-          .from("file_mappings")
-          .delete()
-          .eq("storage_node_id", node.id)
-          .eq("google_file_id", fileId);
-
+        await supabase.from("file_mappings").delete().eq("storage_node_id", node.id).eq("google_file_id", fileId);
+        void dispatchWebhook(supabase, "file.moved", { fileId, fromNode: nodeId, toNode: destNodeId });
         return new Response(JSON.stringify({ success: true, crossDrive: true }), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
@@ -1046,81 +1164,65 @@ Deno.serve(async (req: Request) => {
 
       const file = await getDriveFile(node, fileId);
       const currentParents = file.parents || [];
-
       const params = new URLSearchParams();
-      if (currentParents.length > 0) {
-        params.set("removeParents", currentParents.join(","));
-      }
-      if (newParentId) {
-        params.set("addParents", newParentId);
-      }
-
+      if (currentParents.length > 0) params.set("removeParents", currentParents.join(","));
+      if (newParentId) params.set("addParents", newParentId);
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-
       if (!res.ok) {
         const err = await res.text().catch(() => "");
         throw new HttpError(res.status, `Move failed: ${err}`);
       }
-
+      void dispatchWebhook(supabase, "file.moved", { fileId, nodeId, newParentId });
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/create-folder
+    // ============ Create folder ============
+
     if (path === "/create-folder" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { nodeId, name, parentId } = body;
       if (!nodeId || !name) throw new HttpError(400, "nodeId, name required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const folderBody: Record<string, unknown> = {
         name,
         mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId && parentId !== "root" ? parentId : "root"],
       };
-      if (parentId && parentId !== "root") {
-        folderBody.parents = [parentId];
-      } else {
-        folderBody.parents = ["root"];
-      }
-
       const res = await fetchWithRetry("https://www.googleapis.com/drive/v3/files", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(folderBody),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Create folder failed (${res.status})`);
       const folder = await res.json();
-
       return new Response(JSON.stringify(publicFile(folder, node)), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/share
+    // ============ Share ============
+
     if (path === "/share" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, access } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
 
       let permission;
-      if (access === "public") {
-        permission = { type: "anyone", role: "reader" };
-      } else if (access === "editor") {
-        permission = { type: "anyone", role: "writer" };
-      } else if (access === "unlisted") {
-        permission = { type: "anyone", role: "reader", allowFileDiscovery: false };
-      } else {
+      if (access === "public") permission = { type: "anyone", role: "reader" };
+      else if (access === "editor") permission = { type: "anyone", role: "writer" };
+      else if (access === "unlisted") permission = { type: "anyone", role: "reader", allowFileDiscovery: false };
+      else {
         const listRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -1145,30 +1247,28 @@ Deno.serve(async (req: Request) => {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(permission),
       });
-
       if (!res.ok) throw new HttpError(res.status, `Share failed (${res.status})`);
-
+      void dispatchWebhook(supabase, "file.shared", { fileId, nodeId, access });
       return new Response(JSON.stringify({ success: true, access }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/delete
+    // ============ Delete ============
+
     if (path === "/delete" && req.method === "POST") {
+      requireScope("files:delete");
       const body = await req.json();
       const { fileId, nodeId } = body;
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok && res.status !== 204) throw new HttpError(res.status, `Delete failed (${res.status})`);
-
+      void dispatchWebhook(supabase, "file.deleted", { fileId, nodeId, permanent: true });
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1176,47 +1276,37 @@ Deno.serve(async (req: Request) => {
 
     // ============ Versioning ============
 
-    // GET /drive-ops/versions?fileId=xxx&nodeId=xxx — list versions for a file
     if (path === "/versions" && req.method === "GET") {
+      requireScope("files:read");
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const { data, error } = await supabase
         .from("file_versions")
         .select("*")
         .eq("storage_node_id", nodeId)
         .eq("google_file_id", fileId)
         .order("version_number", { ascending: false });
-
       if (error) throw new Error("Failed to fetch versions");
-
       return new Response(JSON.stringify({ versions: data || [] }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/versions/restore — restore a specific version
     if (path === "/versions/restore" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { versionId } = body;
       if (!versionId) throw new HttpError(400, "versionId required");
-
       const { data: version, error: vErr } = await supabase
         .from("file_versions")
         .select("*")
         .eq("id", versionId)
         .maybeSingle();
-
       if (vErr || !version) throw new HttpError(404, "Version not found");
-
-      if (!version.archived_google_file_id) {
-        throw new HttpError(400, "Version has no archived content — nothing to restore");
-      }
-
+      if (!version.archived_google_file_id) throw new HttpError(400, "Version has no archived content");
       const node = await getStorageNode(supabase, version.storage_node_id);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(
         `https://www.googleapis.com/drive/v3/files/${version.archived_google_file_id}/copy`,
         {
@@ -1229,7 +1319,6 @@ Deno.serve(async (req: Request) => {
         const err = await res.text().catch(() => "");
         throw new HttpError(res.status, `Restore failed: ${err}`);
       }
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1237,12 +1326,11 @@ Deno.serve(async (req: Request) => {
 
     // ============ Deduplication ============
 
-    // GET /drive-ops/dedup/check?hash=xxx&size=yyy
     if (path === "/dedup/check" && req.method === "GET") {
+      requireScope("files:read");
       const hash = url.searchParams.get("hash");
       const size = Number(url.searchParams.get("size") || "0");
       if (!hash) throw new HttpError(400, "hash required");
-
       const { data, error } = await supabase
         .from("content_hashes")
         .select("hash, storage_node_id, google_file_id, filename, size, mime_type")
@@ -1250,15 +1338,12 @@ Deno.serve(async (req: Request) => {
         .eq("size", size)
         .limit(1)
         .maybeSingle();
-
       if (error || !data) {
         return new Response(JSON.stringify({ exists: false }), {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       const node = await getStorageNode(supabase, data.storage_node_id);
-
       return new Response(JSON.stringify({
         exists: true,
         match: {
@@ -1274,14 +1359,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-ops/dedup/register
     if (path === "/dedup/register" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { hash, nodeId, googleFileId, filename, size, mimeType } = body;
-      if (!hash || !nodeId || !googleFileId) {
-        throw new HttpError(400, "hash, nodeId, googleFileId required");
-      }
-
+      if (!hash || !nodeId || !googleFileId) throw new HttpError(400, "hash, nodeId, googleFileId required");
       await supabase.from("content_hashes").upsert({
         hash,
         storage_node_id: nodeId,
@@ -1290,7 +1372,6 @@ Deno.serve(async (req: Request) => {
         size: size || 0,
         mime_type: mimeType || null,
       }, { onConflict: "hash,storage_node_id,google_file_id" });
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1298,46 +1379,35 @@ Deno.serve(async (req: Request) => {
 
     // ============ Permissions ============
 
-    // GET /drive-ops/permissions
     if (path === "/permissions" && req.method === "GET") {
+      requireScope("files:read");
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(id,type,role,emailAddress,displayName,photoLink,expirationTime)`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok) throw new HttpError(res.status, `Failed to list permissions (${res.status})`);
       const data = await res.json();
-
       return new Response(JSON.stringify({ permissions: data.permissions || [] }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // POST /drive-ops/permissions
     if (path === "/permissions" && req.method === "POST") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, email, role } = body;
       if (!fileId || !nodeId || !email || !role) throw new HttpError(400, "fileId, nodeId, email, role required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "user",
-          role,
-          emailAddress: email,
-        }),
+        body: JSON.stringify({ type: "user", role, emailAddress: email }),
       });
-
       if (!res.ok) {
         const errText = await res.text();
         let errMsg = `Failed to add permission (${res.status})`;
@@ -1347,27 +1417,23 @@ Deno.serve(async (req: Request) => {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       const perm = await res.json();
       return new Response(JSON.stringify({ permission: perm }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // DELETE /drive-ops/permissions
     if (path === "/permissions" && req.method === "DELETE") {
+      requireScope("files:write");
       const body = await req.json();
       const { fileId, nodeId, permissionId } = body;
       if (!fileId || !nodeId || !permissionId) throw new HttpError(400, "fileId, nodeId, permissionId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const token = await getValidAccessToken(node);
-
       const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions/${permissionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (!res.ok && res.status !== 204) {
         const errText = await res.text();
         let errMsg = `Failed to remove permission (${res.status})`;
@@ -1377,21 +1443,18 @@ Deno.serve(async (req: Request) => {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // GET /drive-ops/share-link
     if (path === "/share-link" && req.method === "GET") {
+      requireScope("files:read");
       const fileId = url.searchParams.get("fileId");
       const nodeId = url.searchParams.get("nodeId");
       if (!fileId || !nodeId) throw new HttpError(400, "fileId, nodeId required");
-
       const node = await getStorageNode(supabase, nodeId);
       const file = await getDriveFile(node, fileId);
-
       return new Response(JSON.stringify({
         webViewLink: file.webViewLink || null,
         webContentLink: file.webContentLink || null,
@@ -1400,15 +1463,13 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ============ Device Management ============
+    // ============ Devices ============
 
     if (path === "/devices/register" && req.method === "POST") {
       const body = await req.json();
       const { deviceId, deviceName, browser, os, userAgent } = body;
       if (!deviceId) throw new HttpError(400, "deviceId required");
-
       const { data: existing } = await supabase.from("devices").select("*").eq("device_id", deviceId).maybeSingle();
-
       if (existing) {
         const { data: updated } = await supabase.from("devices").update({
           device_name: deviceName || existing.device_name,
@@ -1422,7 +1483,6 @@ Deno.serve(async (req: Request) => {
           headers: { ...ch, "Content-Type": "application/json" },
         });
       }
-
       const { data: created } = await supabase.from("devices").insert({
         device_id: deviceId,
         device_name: deviceName || null,
@@ -1431,7 +1491,6 @@ Deno.serve(async (req: Request) => {
         user_agent: userAgent || null,
         status: "active",
       }).select("*").single();
-
       return new Response(JSON.stringify({ device: created }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1442,9 +1501,7 @@ Deno.serve(async (req: Request) => {
         .from("devices")
         .select("*")
         .order("last_active", { ascending: false });
-
       if (error) throw new Error("Failed to fetch devices");
-
       return new Response(JSON.stringify({ devices: data || [] }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1454,24 +1511,21 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const { deviceId } = body;
       if (!deviceId) throw new HttpError(400, "deviceId required");
-
       await supabase.from("devices").update({
         status: "revoked",
         last_active: new Date().toISOString(),
       }).eq("device_id", deviceId);
-
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }
 
-    // ============ Activity Log ============
+    // ============ Activity ============
 
     if (path === "/activity" && req.method === "POST") {
       const body = await req.json();
-      const { action, target, targetType, storageNodeId, storageNodeName, status, deviceId } = body;
+      const { action, target, storageNodeId, storageNodeName, status } = body;
       if (!action) throw new HttpError(400, "action required");
-
       const { data, error } = await supabase.from("activity_logs").insert({
         event_type: action,
         filename: target || null,
@@ -1480,9 +1534,7 @@ Deno.serve(async (req: Request) => {
         status: status || "success",
         message: `${action}: ${target || ""}`,
       }).select("*").single();
-
       if (error) throw new Error("Failed to log activity");
-
       return new Response(JSON.stringify({ log: data }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
@@ -1491,30 +1543,277 @@ Deno.serve(async (req: Request) => {
     if (path === "/activity" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "50");
       const filter = url.searchParams.get("filter");
-
       let query = supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(limit);
-
       if (filter && filter !== "all") {
-        const fileActions = ["upload", "download", "preview", "rename", "move", "copy", "trash", "restore", "starred", "unstarred"];
-        const storageActions = ["storage_connected", "storage_disconnected"];
-        const sharingActions = ["share", "permission_change"];
-        const systemActions = ["login", "logout", "settings_change", "backup", "restore"];
+        const map: Record<string, string[]> = {
+          files: ["upload", "download", "preview", "rename", "move", "copy", "trash", "restore", "starred", "unstarred"],
+          storage: ["storage_connected", "storage_disconnected"],
+          sharing: ["share", "permission_change"],
+          system: ["login", "logout", "settings_change", "backup", "restore"],
+        };
+        const actions = map[filter] || [];
+        if (actions.length > 0) query = query.in("event_type", actions);
+      }
+      const { data, error } = await query;
+      if (error) throw new Error("Failed to fetch activity logs");
+      return new Response(JSON.stringify({ logs: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
 
-        let actions: string[] = [];
-        if (filter === "files") actions = fileActions;
-        else if (filter === "storage") actions = storageActions;
-        else if (filter === "sharing") actions = sharingActions;
-        else if (filter === "system") actions = systemActions;
+    // ============ Phase 11: API Keys ============
 
-        if (actions.length > 0) {
-          query = query.in("event_type", actions);
+    if (path === "/api-keys" && req.method === "GET") {
+      requireScope("admin");
+      const { data, error } = await supabase
+        .from("api_keys")
+        .select("id, name, key_prefix, scopes, created_at, last_used_at, expires_at, revoked")
+        .order("created_at", { ascending: false });
+      if (error) throw new Error("Failed to fetch keys");
+      return new Response(JSON.stringify({ keys: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    if (path === "/api-keys" && req.method === "POST") {
+      requireScope("admin");
+      const body = await req.json();
+      const { name, scopes, expiresInDays } = body;
+      if (!name || !Array.isArray(scopes) || scopes.length === 0) {
+        throw new HttpError(400, "name and scopes[] required");
+      }
+      const plaintext = generateApiKey();
+      const keyHash = await sha256Hex(plaintext);
+      const keyPrefix = plaintext.slice(0, 8);
+
+      const expiresAt = expiresInDays
+        ? new Date(Date.now() + Number(expiresInDays) * 86400 * 1000).toISOString()
+        : null;
+
+      const { data: key, error } = await supabase
+        .from("api_keys")
+        .insert({
+          name,
+          key_prefix: keyPrefix,
+          key_hash: keyHash,
+          scopes,
+          expires_at: expiresAt,
+        })
+        .select("id, name, key_prefix, scopes, created_at, last_used_at, expires_at, revoked")
+        .single();
+
+      if (error) throw new Error("Failed to create key");
+
+      return new Response(JSON.stringify({ apiKey: key, plaintext }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    const apiKeyDeleteMatch = path.match(/^\/api-keys\/([^/]+)$/);
+    if (apiKeyDeleteMatch && req.method === "DELETE") {
+      requireScope("admin");
+      const keyId = apiKeyDeleteMatch[1];
+      await supabase.from("api_keys").update({ revoked: true }).eq("id", keyId);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============ Phase 11: Webhooks ============
+
+    if (path === "/webhooks" && req.method === "GET") {
+      requireScope("admin");
+      const { data, error } = await supabase
+        .from("webhooks")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw new Error("Failed to fetch webhooks");
+      return new Response(JSON.stringify({ webhooks: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    if (path === "/webhooks" && req.method === "POST") {
+      requireScope("admin");
+      const body = await req.json();
+      const { url: hookUrl, events } = body;
+      if (!hookUrl || !Array.isArray(events)) {
+        throw new HttpError(400, "url and events[] required");
+      }
+      // Generate secret
+      const secretArr = new Uint8Array(32);
+      crypto.getRandomValues(secretArr);
+      const secret = Array.from(secretArr).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+      const { data: hook, error } = await supabase
+        .from("webhooks")
+        .insert({ url: hookUrl, secret, events, enabled: true })
+        .select("*")
+        .single();
+      if (error) throw new Error("Failed to create webhook");
+      return new Response(JSON.stringify({ webhook: hook }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    const webhookIdMatch = path.match(/^\/webhooks\/([^/]+)$/);
+    if (webhookIdMatch && req.method === "PATCH") {
+      requireScope("admin");
+      const body = await req.json();
+      const { enabled } = body;
+      await supabase.from("webhooks").update({ enabled }).eq("id", webhookIdMatch[1]);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    if (webhookIdMatch && req.method === "DELETE") {
+      requireScope("admin");
+      await supabase.from("webhooks").delete().eq("id", webhookIdMatch[1]);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    const webhookTestMatch = path.match(/^\/webhooks\/([^/]+)\/test$/);
+    if (webhookTestMatch && req.method === "POST") {
+      requireScope("admin");
+      const { data: hook } = await supabase
+        .from("webhooks")
+        .select("*")
+        .eq("id", webhookTestMatch[1])
+        .maybeSingle();
+      if (!hook) throw new HttpError(404, "Webhook not found");
+
+      const body = JSON.stringify({
+        event: "test",
+        timestamp: new Date().toISOString(),
+        data: { message: "Test webhook from My Storage Hub" },
+      });
+      const signature = await signWebhookPayload(hook.secret, body);
+      try {
+        const res = await fetch(hook.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Webhook-Signature": `sha256=${signature}`,
+            "X-Webhook-Event": "test",
+          },
+          body,
+        });
+        const responseBody = await res.text().catch(() => "");
+        return new Response(JSON.stringify({
+          success: res.ok,
+          status: res.status,
+          body: responseBody.substring(0, 500),
+        }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({
+          success: false,
+          body: err instanceof Error ? err.message : "Network error",
+        }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const webhookDeliveriesMatch = path.match(/^\/webhooks\/([^/]+)\/deliveries$/);
+    if (webhookDeliveriesMatch && req.method === "GET") {
+      requireScope("admin");
+      const limit = Math.min(Number(url.searchParams.get("limit") || 30), 100);
+      const { data, error } = await supabase
+        .from("webhook_deliveries")
+        .select("*")
+        .eq("webhook_id", webhookDeliveriesMatch[1])
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw new Error("Failed to fetch deliveries");
+      return new Response(JSON.stringify({ deliveries: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // ============ Phase 11: Analytics ============
+
+    if (path === "/analytics" && req.method === "GET") {
+      requireScope("files:read");
+      const days = Math.min(Number(url.searchParams.get("days") || 30), 365);
+      const since = new Date(Date.now() - days * 86400 * 1000).toISOString().split("T")[0];
+
+      const { data: history } = await supabase
+        .from("storage_snapshots")
+        .select("*")
+        .gte("snapshot_date", since)
+        .order("snapshot_date", { ascending: true });
+
+      // Current totals
+      let totalCap = 0;
+      let totalUsed = 0;
+      for (const n of nodes) {
+        totalCap += n.cap || 0;
+        totalUsed += n.used || 0;
+      }
+
+      // File count
+      const { count: fileCount } = await supabase
+        .from("file_mappings")
+        .select("*", { count: "exact", head: true })
+        .eq("trashed", false);
+
+      // Growth rate
+      let growthRateGBPerDay = 0;
+      let daysUntilFull: number | null = null;
+      if (history && history.length >= 2) {
+        const first = history[0];
+        const last = history[history.length - 1];
+        const firstTotal = Number(first.used_gb);
+        const lastTotal = Number(last.used_gb);
+        const daysSpan = Math.max(1, (new Date(last.snapshot_date).getTime() - new Date(first.snapshot_date).getTime()) / 86400000);
+        growthRateGBPerDay = (lastTotal - firstTotal) / daysSpan;
+        if (growthRateGBPerDay > 0) {
+          const free = totalCap - totalUsed;
+          daysUntilFull = Math.round(free / growthRateGBPerDay);
         }
       }
 
-      const { data, error } = await query;
-      if (error) throw new Error("Failed to fetch activity logs");
+      return new Response(JSON.stringify({
+        totalCap,
+        totalUsed,
+        totalFiles: fileCount || 0,
+        growthRateGBPerDay,
+        daysUntilFull,
+        history: history || [],
+      }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
 
-      return new Response(JSON.stringify({ logs: data || [] }), {
+    if (path === "/analytics/snapshot" && req.method === "POST") {
+      requireScope("admin");
+      const today = new Date().toISOString().split("T")[0];
+      const { count: fileCount } = await supabase
+        .from("file_mappings")
+        .select("*", { count: "exact", head: true })
+        .eq("trashed", false);
+
+      for (const n of nodes) {
+        if (n.status !== "connected") continue;
+        const quota = await getDriveQuota(n);
+        const capGb = quota.total ? quota.total / (1024 * 1024 * 1024) : n.cap;
+        const usedGb = quota.used ? quota.used / (1024 * 1024 * 1024) : n.used;
+
+        await supabase.from("storage_snapshots").upsert({
+          storage_node_id: n.id,
+          snapshot_date: today,
+          cap_gb: capGb,
+          used_gb: usedGb,
+          file_count: fileCount || 0,
+        }, { onConflict: "storage_node_id,snapshot_date" });
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...ch, "Content-Type": "application/json" },
       });
     }

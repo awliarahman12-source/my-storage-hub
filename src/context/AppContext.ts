@@ -95,6 +95,18 @@ export interface AppContextValue {
 
   // Deduplication (Phase 10)
   checkDeduplication: (file: File) => Promise<{ exists: boolean; match?: any; hash?: string }>;
+
+  // Notifications (Phase 11 - L)
+  notificationsEnabled: boolean;
+  enableNotifications: () => Promise<boolean>;
+
+  // Shortcuts help (Phase 11 - M)
+  shortcutsHelpOpen: boolean;
+  setShortcutsHelpOpen: (open: boolean) => void;
+
+  // Global search (Phase 11 - D)
+  globalSearchOpen: boolean;
+  setGlobalSearchOpen: (open: boolean) => void;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

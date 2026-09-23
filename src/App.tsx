@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { AppProvider } from '@/context/AppProvider';
 import { Sidebar } from '@/components/Sidebar';
@@ -15,11 +15,29 @@ import { SetupScreen } from '@/components/SetupScreen';
 import { UploadModal } from '@/components/modals/UploadModal';
 import { PreviewModal } from '@/components/modals/PreviewModal';
 import { ConvertModal } from '@/components/modals/ConvertModal';
+import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
+import { ShortcutsHelpModal } from '@/components/modals/ShortcutsHelpModal';
 import { FloatingUploadQueue } from '@/components/FloatingUploadQueue';
+import { FolderSyncView } from '@/components/FolderSyncView';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import type { DashboardFile, ExplorerFile, DriveFileItem } from '@/types';
 
 function AppContent() {
-  const { currentView, authLoading, authed, authError, passcodeInitialized, login, setupAdminPasscode, uploadFiles, toast } = useApp();
+  const {
+    currentView,
+    authLoading,
+    authed,
+    authError,
+    passcodeInitialized,
+    login,
+    setupAdminPasscode,
+    uploadFiles,
+    toast,
+    setShortcutsHelpOpen,
+    globalSearchOpen,
+    setGlobalSearchOpen,
+  } = useApp();
+
   const [uploadOpen, setUploadOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<DriveFileItem | DashboardFile | ExplorerFile | null>(null);
@@ -28,22 +46,16 @@ function AppContent() {
   const [globalDragOver, setGlobalDragOver] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Close drawer when view changes
   useEffect(() => {
     setDrawerOpen(false);
   }, [currentView]);
 
-  // Lock body scroll when drawer open
   useEffect(() => {
-    if (drawerOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    if (drawerOpen) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
-  // Global drag & drop
   useEffect(() => {
     if (!authed) return;
     const onDragOver = (e: DragEvent) => {
@@ -72,6 +84,19 @@ function AppContent() {
       window.removeEventListener('drop', onDrop);
     };
   }, [authed, uploadFiles, toast]);
+
+  const shortcuts = useMemo(() => [
+    { key: 'k', ctrl: true, handler: () => setGlobalSearchOpen(true) },
+    { key: 'u', ctrl: true, handler: () => setUploadOpen(true) },
+    { key: '/', ctrl: true, handler: () => setShortcutsHelpOpen(true) },
+    { key: '/', handler: () => {
+      const el = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+      el?.focus();
+    } },
+    { key: '?', handler: () => setShortcutsHelpOpen(true) },
+  ], [setGlobalSearchOpen, setShortcutsHelpOpen]);
+
+  useKeyboardShortcuts(shortcuts);
 
   const openPreview = (file: DriveFileItem | DashboardFile | ExplorerFile) => {
     setPreviewFile(file);
@@ -120,6 +145,7 @@ function AppContent() {
   const showDashboard = currentView === 'dashboard';
   const showSettings = currentView === 'settings';
   const showApi = currentView === 'api';
+  const showFolderSync = currentView === 'folder-sync';
   const explorerViews = ['files', 'shared', 'shared-folder', 'folders'];
   const showExplorer = explorerViews.includes(currentView);
   const simpleViews = ['recent', 'starred', 'photos', 'videos', 'trash', 'drives'];
@@ -145,6 +171,7 @@ function AppContent() {
           {showExplorer && <FileExplorer onPreview={openPreviewWithList} />}
           {showSettings && <SettingsView />}
           {showApi && <ApiView />}
+          {showFolderSync && <FolderSyncView />}
           {showSimple && <SimpleFileView onPreview={openPreviewWithList} />}
         </main>
       </div>
@@ -152,6 +179,8 @@ function AppContent() {
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <PreviewModal open={previewOpen} onClose={() => setPreviewOpen(false)} file={previewFile} fileList={previewList} />
       <ConvertModal open={convertOpen} onClose={() => setConvertOpen(false)} />
+      <GlobalSearchModal open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} onPreview={openPreviewWithList} />
+      <ShortcutsHelpModal />
 
       {globalDragOver && (
         <div className="global-drop-overlay">

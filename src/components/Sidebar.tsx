@@ -33,6 +33,7 @@ const navGroups: { section: string; items: NavItem[] }[] = [
   {
     section: 'System',
     items: [
+      { view: 'folder-sync', icon: '\u2194', label: 'Folder Sync' },
       { view: 'settings', icon: '\u2699', label: 'Settings' },
       { view: 'api', icon: '\u2301', label: 'API & Integrations' },
     ],
@@ -58,7 +59,6 @@ export function Sidebar({ onOpenConvert, mobileOpen = false, onMobileClose }: Si
 
   return (
     <aside className={'sidebar' + (mobileOpen ? ' mobile-open' : '')}>
-      {/* Mobile close button */}
       <button className="sidebar-close" onClick={onMobileClose} aria-label="Close menu">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="18" y1="6" x2="6" y2="18" />
@@ -104,7 +104,6 @@ export function Sidebar({ onOpenConvert, mobileOpen = false, onMobileClose }: Si
           </div>
         </div>
 
-        {/* Mobile-only quick actions */}
         <div className="side-mobile-actions">
           <button className="side-action" onClick={toggleTheme}>
             <span>{theme === 'dark' ? '\u2600' : '\u263E'}</span>
