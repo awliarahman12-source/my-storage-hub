@@ -363,11 +363,20 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
     if (targets.length === 1) {
       setCreateShareItem(targets[0]);
     } else {
-      // Untuk multiple, buat share per file secara berurutan
       toast(`Membuka share link untuk ${targets.length} file...`);
-      // Ambil file pertama untuk demo — atau bisa loop
       setCreateShareItem(targets[0]);
     }
+  };
+
+  // ============ CONTEXT MENU HANDLER ============
+
+  // Fungsi untuk membuka context menu — kalau file belum di-select, select 1 file itu.
+  // Kalau sudah di-select, biarkan selection apa adanya (untuk bulk action).
+  const openContextMenu = (file: DriveFileItem, x: number, y: number) => {
+    if (!selected.has(file.id)) {
+      setSelected(new Set([file.id]));
+    }
+    setContextMenu({ x, y, file });
   };
 
   const contextAction = (action: string) => {
@@ -380,11 +389,23 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
       case 'share-link': handleCreateShareLink(file); break;
       case 'share-gdrive': setShareFiles([file]); break;
       case 'rename': handleRename(file); break;
-      case 'move': void handleMoveOrCopy([file], 'move'); break;
-      case 'copy': void handleMoveOrCopy([file], 'copy'); break;
+      case 'move': {
+        const targets = files.filter((x) => selected.has(x.id));
+        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'move');
+        break;
+      }
+      case 'copy': {
+        const targets = files.filter((x) => selected.has(x.id));
+        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'copy');
+        break;
+      }
       case 'star': void handleStar(file); break;
       case 'details': showDetails(file); break;
-      case 'trash': setTrashConfirm([file]); break;
+      case 'trash': {
+        const targets = files.filter((x) => selected.has(x.id));
+        setTrashConfirm(targets.length > 0 ? targets : [file]);
+        break;
+      }
     }
   };
 
@@ -623,7 +644,10 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => handleRowClick(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 420));
+              }}
               title="Double click to preview"
             >
               <input
@@ -667,7 +691,10 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => handleRowClick(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 420));
+              }}
             >
               <div className="file-icon" onClick={(e) => e.stopPropagation()}>
                 <input
@@ -711,7 +738,10 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
                       className="xbtn"
                       style={{ fontSize: 11, padding: '2px 6px' }}
                       title="More actions"
-                      onClick={(e) => { e.stopPropagation(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 420));
+                      }}
                     >{'\u22EE'}</button>
                   </>
                 )}
@@ -731,10 +761,16 @@ export function SimpleFileView({ onPreview }: SimpleFileViewProps) {
       )}
 
       {contextMenu && (
-        <div          className="context-menu open"
+        <div
+          className="context-menu open"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {selected.size > 1 && (
+            <div style={{ padding: '6px 12px', fontSize: 10, color: '#7b8495', borderBottom: '1px solid var(--line)' }}>
+              {selected.size} file dipilih
+            </div>
+          )}
           {!contextMenu.file.isFolder && <button onClick={() => contextAction('preview')}>Preview</button>}
           <button onClick={() => contextAction('download')}>Download</button>
           <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>

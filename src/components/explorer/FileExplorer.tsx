@@ -294,14 +294,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     setSelected(new Set());
   };
 
-  // ============ SHARE HANDLERS ============
-
-  // Buka modal Google Drive permission (existing)
   const handleShare = (file: DriveFileItem) => {
     setShareFiles([file]);
   };
 
-  // Buka modal Create Share Link (baru)
   const handleCreateShareLink = (file: DriveFileItem) => {
     setCreateShareItem(file);
   };
@@ -350,22 +346,44 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     setDetailsOpen(true);
   };
 
+  // ============ CONTEXT MENU HANDLER ============
+
+  // Fungsi untuk membuka context menu — kalau file belum di-select, select 1 file itu.
+  // Kalau sudah di-select, biarkan selection apa adanya (untuk bulk action).
+  const openContextMenu = (file: DriveFileItem, x: number, y: number) => {
+    if (!selected.has(file.id)) {
+      setSelected(new Set([file.id]));
+    }
+    setContextMenu({ x, y, file });
+  };
+
   const contextAction = (action: string) => {
     if (!contextMenu) return;
     const file = contextMenu.file;
     setContextMenu(null);
-    setSelected(new Set([file.id]));
     switch (action) {
       case 'open': open(file); break;
       case 'download': handleDownload(file); break;
-      case 'share': handleShare(file); break;                    // Google Drive permission
-      case 'share-link': handleCreateShareLink(file); break;     // Share Link baru
+      case 'share': handleShare(file); break;
+      case 'share-link': handleCreateShareLink(file); break;
       case 'rename': handleRename(file); break;
-      case 'move': void handleMoveOrCopy([file], 'move'); break;
-      case 'copy': void handleMoveOrCopy([file], 'copy'); break;
+      case 'move': {
+        const targets = sorted.filter((x) => selected.has(x.id));
+        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'move');
+        break;
+      }
+      case 'copy': {
+        const targets = sorted.filter((x) => selected.has(x.id));
+        void handleMoveOrCopy(targets.length > 0 ? targets : [file], 'copy');
+        break;
+      }
       case 'star': void handleStar(file); break;
       case 'details': showDetails(file); break;
-      case 'trash': setTrashConfirm([file]); break;
+      case 'trash': {
+        const targets = sorted.filter((x) => selected.has(x.id));
+        setTrashConfirm(targets.length > 0 ? targets : [file]);
+        break;
+      }
     }
   };
 
@@ -556,7 +574,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 460));
+              }}
               title="Double click to open"
             >
               <input
@@ -600,7 +621,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
-              onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 240), y: Math.min(e.clientY, window.innerHeight - 420), file: f }); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 460));
+              }}
             >
               <div className="file-icon" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input
@@ -624,7 +648,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                 <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '\u2605' : '\u2606'}</button>
                 <button
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', fontSize: 16 }}
-                  onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, file: f }); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 460));
+                  }}
                 >{'\u22EE'}</button>
               </div>
             </div>
@@ -641,7 +668,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
-      {/* Properties Panel */}
       <div className={'details-panel' + (detailsOpen ? ' open' : '')}>
         <div className="details-head">
           <strong>Properties</strong>
@@ -656,7 +682,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, justifyContent: 'center' }}>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { open(detailsFile); }}>Open</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>Download</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleCreateShareLink(detailsFile)}>🔗 Share Link</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setCreateShareItem(detailsFile); }}>🔗 Share Link</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleShare(detailsFile)}>Share</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>Rename</button>
               <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'move'); }}>Move</button>
@@ -700,13 +726,17 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         )}
       </div>
 
-      {/* Context Menu */}
       {contextMenu && (
         <div
           className="context-menu open"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {selected.size > 1 && (
+            <div style={{ padding: '6px 12px', fontSize: 10, color: '#7b8495', borderBottom: '1px solid var(--line)' }}>
+              {selected.size} file dipilih
+            </div>
+          )}
           <button onClick={() => contextAction('open')}>Open / Preview</button>
           <button onClick={() => contextAction('download')}>Download</button>
           <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>
@@ -720,7 +750,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
-      {/* Folder Picker Modal */}
       {folderPicker && (
         <div className="modal-wrap open" onClick={() => setFolderPicker(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
@@ -779,7 +808,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
-      {/* Trash Confirmation Modal */}
       {trashConfirm.length > 0 && (
         <div className="modal-wrap open" onClick={() => setTrashConfirm([])}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
@@ -809,14 +837,12 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
-      {/* Google Drive Share Modal (existing) */}
       <ShareModal
         files={shareFiles}
         open={shareFiles.length > 0}
         onClose={() => setShareFiles([])}
       />
 
-      {/* NEW: Create Share Link Modal */}
       <CreateShareModal
         open={!!createShareItem}
         onClose={() => setCreateShareItem(null)}
