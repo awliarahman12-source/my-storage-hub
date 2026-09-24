@@ -1365,3 +1365,89 @@ body,
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* ============================================================
+   FIX SCROLL: Share Page
+   Tambahkan di paling bawah index.css
+   ============================================================ */
+
+.share-app {
+  min-height: 100vh;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+.share-content {
+  padding: 20px;
+  overflow: visible;
+}
+
+.share-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.share-lb-stage {
+  flex: 1;
+  display: flex;
+  align-items: flex-start !important;
+  justify-content: center;
+  overflow: auto !important;
+  padding: 20px;
+  min-height: 0;
+}
+
+.share-lb-stage > * {
+  max-width: 100%;
+}
+
+.share-lb-head,
+.share-lb-foot {
+  flex-shrink: 0;
+  padding: 12px 20px;
+}
+
+.share-details {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 100vw;
+  background: #141826;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.share-details-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.share-details-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+}

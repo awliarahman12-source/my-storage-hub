@@ -3,9 +3,6 @@ import {
   fetchPublicShareInfo,
   verifySharePassword,
   fetchShareFolder,
-  shareThumbnailUrl,
-  shareStreamUrl,
-  shareDownloadUrl,
   fetchComments,
   postComment,
   type PublicShareInfo,
@@ -100,12 +97,26 @@ export function SharePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, passwordOk, info, currentFolderId]);
 
-    // Auto-open lightbox for single-file share
+  // Auto-open lightbox for single-file share
   useEffect(() => {
     if (info?.kind === 'file' && files.length === 1 && lightboxIndex < 0) {
       setLightboxIndex(0);
     }
   }, [info?.kind, files.length, lightboxIndex]);
+
+  // FIX: Pastikan body selalu bisa scroll kalau lightbox tidak aktif
+  useEffect(() => {
+    if (lightboxIndex < 0) {
+      document.body.style.overflow = '';
+    }
+  }, [lightboxIndex]);
+
+  // FIX: Pastikan body di-restore saat unmount / ganti folder
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   const loadFiles = async (path: string) => {
     if (!token) return;
