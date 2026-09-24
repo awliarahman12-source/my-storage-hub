@@ -640,14 +640,12 @@ body,
 /* ==================== MOBILE: FIX SIDEBAR OVERLAP ==================== */
 
 @media (max-width: 760px) {
-  /* Sidebar jadi flex column: nav scroll di atas, footer di bawah */
   .sidebar {
     display: flex !important;
     flex-direction: column;
     overflow: hidden;
   }
 
-  /* Nav area — scroll, kasih ruang untuk footer */
   .sidebar .nav {
     flex: 1 1 auto;
     min-height: 0;
@@ -656,7 +654,6 @@ body,
     margin-bottom: 0;
   }
 
-  /* Footer pindah ke flow normal (bukan absolute) */
   .sidebar .side-bottom {
     position: static !important;
     left: auto !important;
@@ -669,7 +666,6 @@ body,
     background: var(--panel);
   }
 
-  /* Card storage lebih compact di mobile */
   .sidebar .pool-mini {
     padding: 12px 14px;
     margin-bottom: 8px;
@@ -678,12 +674,10 @@ body,
     font-size: 14px;
   }
 
-  /* Nav padding-bottom yang lama sudah tidak perlu */
   .nav {
     padding-bottom: 0 !important;
   }
 
-  /* Actions bawah lebih rapi */
   .side-mobile-actions {
     display: flex;
     flex-direction: column;
@@ -698,16 +692,13 @@ body,
     font-size: 14px;
   }
 
-  /* Brand jangan ketiban tombol close */
   .sidebar .brand {
     padding-right: 50px;
   }
 }
 
-
 /* ==================== MODAL OVERLAY FIX (ALL MODALS) ==================== */
 
-/* Base overlay untuk semua modal */
 .modal-wrap,
 .modal-wrap.open {
   background: rgba(10, 15, 30, 0.65) !important;
@@ -715,7 +706,6 @@ body,
   -webkit-backdrop-filter: blur(4px);
 }
 
-/* Modal panel solid */
 .modal-wrap .modal,
 .modal-wrap .modal-panel {
   background: var(--panel, #fff) !important;
@@ -723,7 +713,6 @@ body,
   box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Dark theme */
 .dark-theme .modal-wrap,
 .dark-theme .modal-wrap.open {
   background: rgba(0, 0, 0, 0.75) !important;
@@ -736,12 +725,10 @@ body,
   border: 1px solid #273145 !important;
 }
 
-/* Nested modal (PreviewModal, folder picker, dll) — overlay lebih gelap */
 .modal-wrap.open[style*="z-index"] {
   background: rgba(10, 15, 30, 0.75) !important;
 }
 
-/* Modal head styling (kalau belum ada) */
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -795,7 +782,6 @@ body,
   font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
 }
 
-/* Header */
 .share-topbar {
   position: sticky;
   top: 0;
@@ -866,7 +852,6 @@ body,
 }
 .share-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 
-/* Breadcrumb */
 .share-breadcrumb {
   padding: 12px 16px;
   display: flex;
@@ -893,7 +878,6 @@ body,
 .share-breadcrumb .current { color: #fff; font-weight: 500; }
 .share-breadcrumb .sep { color: rgba(255, 255, 255, 0.3); }
 
-/* Content */
 .share-content {
   padding: 16px;
 }
@@ -901,7 +885,6 @@ body,
   .share-content { padding: 20px 28px; }
 }
 
-/* Grid */
 .share-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -985,7 +968,6 @@ body,
   font-weight: 600;
 }
 
-/* Skeleton */
 .share-skeleton {
   position: absolute;
   inset: 0;
@@ -1013,7 +995,6 @@ body,
   .share-loading { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 20px 28px; }
 }
 
-/* List */
 .share-list {
   background: #1b1b1b;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1064,7 +1045,6 @@ body,
 .share-list-info small { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
 .share-list-meta { font-size: 12px; color: rgba(255, 255, 255, 0.45); text-align: right; }
 
-/* Lightbox */
 .share-lightbox {
   position: fixed;
   inset: 0;
@@ -1131,7 +1111,6 @@ body,
   color: rgba(255, 255, 255, 0.45);
 }
 
-/* Details panel */
 .share-details-backdrop {
   position: fixed;
   inset: 0;
@@ -1206,7 +1185,6 @@ body,
 .share-details-row span:last-child { text-align: right; word-break: break-word; }
 .share-details-actions { display: flex; gap: 8px; }
 
-/* Buttons */
 .share-btn {
   padding: 11px 16px;
   border-radius: 10px;
@@ -1231,7 +1209,6 @@ body,
 .share-btn.primary:hover { background: #7c3aed; border-color: #7c3aed; }
 .share-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Input */
 .share-input {
   flex: 1;
   padding: 10px 12px;
@@ -1248,7 +1225,6 @@ body,
 .share-input:focus { border-color: #5b5cf0; }
 .share-input::placeholder { color: rgba(255, 255, 255, 0.35); }
 
-/* Comments */
 .share-comments {
   margin-top: 16px;
   padding-top: 16px;
@@ -1296,7 +1272,6 @@ body,
 .share-comment-head small { font-size: 10px; color: rgba(255, 255, 255, 0.4); }
 .share-comment-text { font-size: 12px; color: rgba(255, 255, 255, 0.85); line-height: 1.5; word-break: break-word; }
 
-/* States */
 .share-state-page {
   min-height: 100vh;
   display: flex;
@@ -1336,7 +1311,6 @@ body,
   width: min(320px, 100%);
 }
 
-/* Footer */
 .share-footer {
   padding: 32px 20px;
   text-align: center;
@@ -1346,7 +1320,6 @@ body,
   color: rgba(255, 255, 255, 0.25);
 }
 
-/* Toast */
 .share-toast {
   position: fixed;
   bottom: 32px;
@@ -1367,55 +1340,68 @@ body,
 }
 
 /* ============================================================
-   FIX SCROLL: Share Page
-   Tambahkan di paling bawah index.css
+   FIX SCROLL: Share Page (v2 — height:100vh + scrollable stage)
+   Menggantikan blok FIX SCROLL sebelumnya
    ============================================================ */
 
+/* 1. Share app: tinggi tetap = viewport, scroll internal */
 .share-app {
-  min-height: 100vh;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  min-height: 0 !important;
   overflow-y: auto !important;
-  overflow-x: hidden;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
-.share-content {
-  padding: 20px;
+.share-app::-webkit-scrollbar { width: 8px; }
+.share-app::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+}
+
+/* 2. Share content: konten di dalam share-app */
+.share-app .share-content {
+  padding: 16px;
   overflow: visible;
 }
-
-.share-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
+@media (min-width: 640px) {
+  .share-app .share-content { padding: 20px 28px; }
 }
 
-.share-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
+/* 3. Lightbox: fixed overlay, stage scrollable untuk PDF panjang */
 .share-lightbox {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.95);
+  background: #050505;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .share-lb-stage {
-  flex: 1;
-  display: flex;
+  flex: 1 1 auto;
+  display: flex !important;
   align-items: flex-start !important;
   justify-content: center;
   overflow: auto !important;
   padding: 20px;
   min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+.share-lb-stage::-webkit-scrollbar { width: 8px; }
+.share-lb-stage::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
 }
 
 .share-lb-stage > * {
   max-width: 100%;
+  margin: 0 auto;
 }
 
 .share-lb-head,
@@ -1424,13 +1410,13 @@ body,
   padding: 12px 20px;
 }
 
+/* 4. Details panel: internal scroll body */
 .share-details {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 380px;
-  max-width: 100vw;
+  width: min(400px, 100vw);
   background: #141826;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 1001;
@@ -1440,9 +1426,11 @@ body,
 }
 
 .share-details-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .share-details-backdrop {
