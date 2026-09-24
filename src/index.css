@@ -1386,8 +1386,8 @@ body,
 .share-lb-stage {
   flex: 1 1 auto;
   display: flex !important;
-  align-items: flex-start !important;
-  justify-content: center;
+  align-items: center !important;
+  justify-content: center !important;
   overflow: auto !important;
   padding: 20px;
   min-height: 0;
@@ -1400,8 +1400,10 @@ body,
 }
 
 .share-lb-stage > * {
+  margin: auto !important;
   max-width: 100%;
-  margin: 0 auto;
+  max-height: 100%;
+  flex: 0 0 auto;
 }
 
 .share-lb-head,
