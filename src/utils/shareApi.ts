@@ -247,11 +247,154 @@ export async function postComment(
   return data.comment as ShareComment;
 }
 
+// ============ Editor Actions (Tahap 3) ============
+
+function pwQS(password?: string): string {
+  return password ? `?pw=${encodeURIComponent(password)}` : '';
+}
+
+export async function shareUpload(
+  token: string,
+  file: File,
+  parentFolderId?: string,
+  password?: string,
+): Promise<{ success: boolean; file: ShareFile }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (parentFolderId) form.append('parentFolderId', parentFolderId);
+  const res = await fetch(`${publicUrl()}/share/${token}/upload${pwQS(password)}`, {
+    method: 'POST',
+    credentials: 'omit',
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Upload failed (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function shareCreateFolder(
+  token: string,
+  name: string,
+  parentFolderId?: string,
+  password?: string,
+): Promise<{ success: boolean; folder: ShareFile }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/folder${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ name, parentFolderId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Create folder failed (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function shareRename(
+  token: string,
+  fileId: string,
+  newName: string,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean; file: ShareFile }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/rename${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, newName, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Rename failed (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function shareMove(
+  token: string,
+  fileId: string,
+  destFolderId: string,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/move${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, destFolderId, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Move failed (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function shareTrash(
+  token: string,
+  fileId: string,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/trash${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Trash failed (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function shareStar(
+  token: string,
+  fileId: string,
+  starred: boolean,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean; starred: boolean }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/star${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, starred, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Star failed (${res.status})`);
+  }
+  return await res.json();
+}
+
 // ============ Helpers ============
 
 export function buildShareUrl(token: string, kind: ShareKind): string {
   const origin = window.location.origin;
-  // 'items' di-treat sama seperti 'folder' di URL (pakai /g/)
   const pathPrefix = kind === 'file' ? 's' : 'g';
   return `${origin}/${pathPrefix}/${token}`;
+}
+
+export async function shareUntrash(
+  token: string,
+  fileId: string,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/untrash${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Restore failed (${res.status})`);
+  }
+  return await res.json();
 }

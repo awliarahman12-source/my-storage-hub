@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { PdfPreview } from '@/components/preview/PdfPreview';
 import {
   shareThumbnailUrl,
   shareStreamUrl,
@@ -21,6 +20,7 @@ const ROLE_LABEL: Record<ShareRole, string> = {
 
 export function ShareHeader({
   title, role, kind, viewMode, onToggleView, onOpenDetails,
+  isEditor, uploading, onUpload, onNewFolder, onRefresh,
 }: {
   title: string;
   role: ShareRole;
@@ -28,6 +28,11 @@ export function ShareHeader({
   viewMode: 'grid' | 'list';
   onToggleView: () => void;
   onOpenDetails: () => void;
+  isEditor?: boolean;
+  uploading?: boolean;
+  onUpload?: () => void;
+  onNewFolder?: () => void;
+  onRefresh?: () => void;
 }) {
   return (
     <header className="share-topbar">
@@ -37,6 +42,33 @@ export function ShareHeader({
         <span className={`share-role-badge ${role}`}>{ROLE_LABEL[role]}</span>
       </div>
       <div className="share-actions">
+        {isEditor && kind === 'folder' && (
+          <>
+            <button
+              className="share-icon-btn"
+              onClick={onUpload}
+              disabled={uploading}
+              title="Upload file"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </button>
+            <button
+              className="share-icon-btn"
+              onClick={onNewFolder}
+              title="Folder baru"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                <line x1="12" y1="11" x2="12" y2="17"/>
+                <line x1="9" y1="14" x2="15" y2="14"/>
+              </svg>
+            </button>
+          </>
+        )}
         {kind === 'folder' && (
           <button className="share-icon-btn" onClick={onToggleView} title="Toggle view">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -50,6 +82,15 @@ export function ShareHeader({
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
           </svg>
         </button>
+        {isEditor && onRefresh && (
+          <button className="share-icon-btn" onClick={onRefresh} title="Refresh">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+        )}
       </div>
     </header>
   );
@@ -88,11 +129,14 @@ export function ShareBreadcrumb({
 
 export function ShareGrid({
   files, onItemClick, onOpenDetails, detailsFileId,
+  isEditor, onContextMenu,
 }: {
   files: ShareFile[];
   onItemClick: (f: ShareFile) => void;
   onOpenDetails: (f: ShareFile) => void;
   detailsFileId?: string;
+  isEditor?: boolean;
+  onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
 }) {
   return (
     <div className="share-content">
@@ -104,6 +148,8 @@ export function ShareGrid({
             onClick={() => onItemClick(f)}
             onDetails={() => onOpenDetails(f)}
             isSelected={detailsFileId === f.id}
+            isEditor={isEditor}
+            onContextMenu={onContextMenu}
           />
         ))}
       </div>
@@ -112,12 +158,14 @@ export function ShareGrid({
 }
 
 function ShareTile({
-  file, onClick, onDetails, isSelected,
+  file, onClick, onDetails, isSelected, isEditor, onContextMenu,
 }: {
   file: ShareFile;
   onClick: () => void;
   onDetails: () => void;
   isSelected: boolean;
+  isEditor?: boolean;
+  onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -141,7 +189,15 @@ function ShareTile({
     <button
       className={`share-tile ${isSelected ? 'selected' : ''}`}
       onClick={onClick}
-      onContextMenu={(e) => { e.preventDefault(); onDetails(); }}
+      onContextMenu={(e) => {
+        if (isEditor && onContextMenu) {
+          e.preventDefault();
+          onContextMenu(e, file);
+        } else {
+          e.preventDefault();
+          onDetails();
+        }
+      }}
     >
       <div className="share-tile-thumb">
         {thumbUrl && !failed ? (
@@ -162,6 +218,17 @@ function ShareTile({
         {file.comments > 0 && (
           <span className="share-badge-comments">💬 {file.comments}</span>
         )}
+        {isEditor && onContextMenu && (
+          <span
+            className="share-tile-menu-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onContextMenu(e, file);
+            }}
+            role="button"
+            aria-label="More actions"
+          >⋮</span>
+        )}
       </div>
       <div className="share-tile-meta">
         <div className="share-tile-name">{file.name}</div>
@@ -179,11 +246,14 @@ function ShareTile({
 
 export function ShareList({
   files, onItemClick, onOpenDetails, detailsFileId,
+  isEditor, onContextMenu,
 }: {
   files: ShareFile[];
   onItemClick: (f: ShareFile) => void;
   onOpenDetails: (f: ShareFile) => void;
   detailsFileId?: string;
+  isEditor?: boolean;
+  onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
 }) {
   const renderIcon = (f: ShareFile) => {
     if (f.thumbnailUrl) {
@@ -209,14 +279,35 @@ export function ShareList({
             key={f.id}
             className={`share-list-row ${detailsFileId === f.id ? 'selected' : ''}`}
             onClick={() => onItemClick(f)}
-            onContextMenu={(e) => { e.preventDefault(); onOpenDetails(f); }}
+            onContextMenu={(e) => {
+              if (isEditor && onContextMenu) {
+                e.preventDefault();
+                onContextMenu(e, f);
+              } else {
+                e.preventDefault();
+                onOpenDetails(f);
+              }
+            }}
           >
             <div className="share-list-icon">{renderIcon(f)}</div>
             <div className="share-list-info">
               <strong>{f.name}</strong>
               <small>{f.isFolder ? 'Folder' : f.sizeLabel}{f.comments > 0 ? ` · 💬 ${f.comments}` : ''}</small>
             </div>
-            <div className="share-list-meta">{f.modified}</div>
+            <div className="share-list-meta">
+              {f.modified}
+              {isEditor && onContextMenu && (
+                <span
+                  className="share-list-menu-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onContextMenu(e, f);
+                  }}
+                  role="button"
+                  aria-label="More actions"
+                >⋮</span>
+              )}
+            </div>
           </button>
         ))}
       </div>
@@ -225,7 +316,7 @@ export function ShareList({
 }
 
 // ============================================================
-// LIGHTBOX — Preview semua tipe file
+// LIGHTBOX
 // ============================================================
 
 export function ShareLightbox({
@@ -285,9 +376,9 @@ export function ShareLightbox({
       );
     }
 
-if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
-  return <PdfPreview url={streamUrl} />;
-}
+    if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
+      return <PdfPreview url={streamUrl} />;
+    }
 
     if (active.previewKind === 'text') {
       return <TextPreview url={streamUrl} name={active.name} />;
@@ -303,7 +394,6 @@ if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
       );
     }
 
-    // Unsupported / fallback
     return (
       <div style={{ textAlign: 'center', padding: 40, color: 'rgba(255,255,255,.5)' }}>
         <div style={{ fontSize: 80, marginBottom: 16 }}>📄</div>
@@ -368,7 +458,42 @@ if (active.previewKind === 'pdf' || active.previewKind === 'gdoc') {
 }
 
 // ============================================================
-// TEXT PREVIEW — fetch & tampilkan sebagai <pre>
+// PDF PREVIEW (react-pdf)
+// ============================================================
+
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+function PdfPreview({ url }: { url: string }) {
+  const [numPages, setNumPages] = useState(0);
+  const [page, setPage] = useState(1);
+
+  return (
+    <div className="share-pdf-wrap">
+      <Document
+        file={url}
+        onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+        loading={<div style={{ padding: 40, color: 'rgba(255,255,255,.5)' }}>Loading PDF…</div>}
+        error={<div style={{ padding: 40, color: '#ff8a8a' }}>Gagal memuat PDF.</div>}
+      >
+        <Page pageNumber={page} width={Math.min(900, typeof window !== 'undefined' ? window.innerWidth - 120 : 700)} />
+      </Document>
+      {numPages > 1 && (
+        <div className="share-pdf-nav">
+          <button className="share-btn" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹ Prev</button>
+          <span>Page {page} / {numPages}</span>
+          <button className="share-btn" disabled={page >= numPages} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TEXT PREVIEW
 // ============================================================
 
 function TextPreview({ url, name }: { url: string; name: string }) {
@@ -480,24 +605,12 @@ export function ShareDetailsPanel({
     if (file.previewKind === 'video') {
       return <video src={streamUrl} controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />;
     }
-    if (file.previewKind === 'audio') {
-      return <div style={{ fontSize: 64 }}>🎵</div>;
-    }
-    if (file.previewKind === 'pdf' || file.previewKind === 'gdoc') {
-      return <div style={{ fontSize: 64 }}>📄</div>;
-    }
-    if (file.previewKind === 'text') {
-      return <div style={{ fontSize: 64 }}>📃</div>;
-    }
-    if (thumbUrl) {
-      return <img src={thumbUrl} alt="" />;
-    }
-    if (file.isFolder) {
-      return <div style={{ fontSize: 64 }}>📁</div>;
-    }
-    if (file.type === 'zip') {
-      return <div style={{ fontSize: 64 }}>🗜️</div>;
-    }
+    if (file.previewKind === 'audio') return <div style={{ fontSize: 64 }}>🎵</div>;
+    if (file.previewKind === 'pdf' || file.previewKind === 'gdoc') return <div style={{ fontSize: 64 }}>📄</div>;
+    if (file.previewKind === 'text') return <div style={{ fontSize: 64 }}>📃</div>;
+    if (thumbUrl) return <img src={thumbUrl} alt="" />;
+    if (file.isFolder) return <div style={{ fontSize: 64 }}>📁</div>;
+    if (file.type === 'zip') return <div style={{ fontSize: 64 }}>🗜️</div>;
     return <div style={{ fontSize: 64 }}>📄</div>;
   };
 

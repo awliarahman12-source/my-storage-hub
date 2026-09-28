@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   fetchPublicShareInfo,
   verifySharePassword,
   fetchShareFolder,
   fetchComments,
   postComment,
+  shareUpload,
+  shareCreateFolder,
+  shareRename,
+  shareMove,
+  shareTrash,
+  shareUntrash,
+  shareStar,
   type PublicShareInfo,
   type ShareFile,
   type ShareComment,
@@ -22,6 +29,13 @@ import {
   ShareLoadingState,
   ShareToast,
 } from './shareComponents';
+import {
+  ShareEditorContextMenu,
+  ShareTrashConfirmModal,
+  ShareMovePickerModal,
+  ShareUploadToast,
+  ShareUndoToast,
+} from '@/components/share/ShareEditorMenu';
 
 function parseRoute(): { token: string | null; kind: 'folder' | 'file' } {
   const path = window.location.pathname;
@@ -58,6 +72,19 @@ export function SharePage() {
   // Comments
   const [comments, setComments] = useState<ShareComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+
+  // Editor states
+  const [uploading, setUploading] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<{ filename: string; progress: number; status: 'uploading' | 'success' | 'error' }[]>([]);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: ShareFile } | null>(null);
+  const [trashConfirm, setTrashConfirm] = useState<ShareFile[] | null>(null);
+  const [movePicker, setMovePicker] = useState<ShareFile | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [undoState, setUndoState] = useState<{ files: ShareFile[]; timeLeft: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
+  const undoTimerRef = useRef<number | null>(null);
 
   // ============ Toast helper ============
   const showToast = (msg: string) => {
@@ -104,17 +131,17 @@ export function SharePage() {
     }
   }, [info?.kind, files.length, lightboxIndex]);
 
-  // FIX: Pastikan body selalu bisa scroll kalau lightbox tidak aktif
+  // Reset body overflow when lightbox closed
   useEffect(() => {
     if (lightboxIndex < 0) {
       document.body.style.overflow = '';
     }
   }, [lightboxIndex]);
 
-  // FIX: Pastikan body di-restore saat unmount / ganti folder
   useEffect(() => {
     return () => {
       document.body.style.overflow = '';
+      if (undoTimerRef.current) window.clearInterval(undoTimerRef.current);
     };
   }, []);
 
@@ -164,7 +191,6 @@ export function SharePage() {
   const openDetails = async (file: ShareFile) => {
     setDetailsFile(file);
     setDetailsOpen(true);
-    // Load comments kalau role commenter/editor
     if (info && (info.role === 'commenter' || info.role === 'editor') && !file.isFolder) {
       setCommentsLoading(true);
       try {
@@ -195,11 +221,239 @@ export function SharePage() {
     }
   };
 
+  // ============ Editor handlers ============
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const uploadSingleFile = async (file: File, index: number) => {
+    if (!token) return;
+    try {
+      await shareUpload(token, file, currentFolderId || undefined, password || undefined);
+      setUploadQueue((prev) =>
+        prev.map((item, i) => i === index ? { ...item, progress: 100, status: 'success' as const } : item)
+      );
+    } catch (err) {
+      setUploadQueue((prev) =>
+        prev.map((item, i) => i === index ? { ...item, status: 'error' as const } : item)
+      );
+      showToast(err instanceof Error ? err.message : 'Upload gagal');
+    }
+  };
+
+  const handleUploadFiles = async (fileList: FileList | File[]) => {
+    if (!token) return;
+    const arr = Array.from(fileList);
+    if (arr.length === 0) return;
+
+    setUploading(true);
+    const queue = arr.map((f) => ({ filename: f.name, progress: 0, status: 'uploading' as const }));
+    setUploadQueue(queue);
+
+    // Simulasi progress
+    const progressTimers = queue.map((_, i) =>
+      window.setInterval(() => {
+        setUploadQueue((prev) =>
+          prev.map((item, idx) =>
+            idx === i && item.status === 'uploading'
+              ? { ...item, progress: Math.min(90, item.progress + 10) }
+              : item
+          )
+        );
+      }, 250)
+    );
+
+    // Upload sequential biar tidak overload
+    for (let i = 0; i < arr.length; i++) {
+      await uploadSingleFile(arr[i], i);
+    }
+
+    progressTimers.forEach((t) => window.clearInterval(t));
+
+    const failed = uploadQueue.filter((q) => q.status === 'error').length;
+    if (failed === 0) {
+      showToast(`✓ ${arr.length} file diunggah`);
+    }
+
+    setTimeout(() => setUploadQueue([]), 2500);
+    setUploading(false);
+    await loadFiles(currentFolderId);
+  };
+
+  const handleNewFolder = async () => {
+    if (!token) return;
+    const name = prompt('Nama folder baru:');
+    if (!name?.trim()) return;
+    try {
+      await shareCreateFolder(token, name.trim(), currentFolderId || undefined, password || undefined);
+      showToast('✓ Folder dibuat');
+      await loadFiles(currentFolderId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Gagal bikin folder');
+    }
+  };
+
+  const handleRefresh = async () => {
+    await loadFiles(currentFolderId);
+    showToast('Diperbarui');
+  };
+
+  const handleRename = async (file: ShareFile) => {
+    if (!token) return;
+    const lastDot = file.name.lastIndexOf('.');
+    const hasExt = !file.isFolder && lastDot > 0 && lastDot < file.name.length - 1;
+    const baseName = hasExt ? file.name.substring(0, lastDot) : file.name;
+    const ext = hasExt ? file.name.substring(lastDot) : '';
+    const n = prompt('Nama baru:', baseName);
+    if (!n?.trim()) return;
+    const newName = hasExt ? n.trim() + ext : n.trim();
+    try {
+      await shareRename(token, file.id, newName, file.nodeId, password || undefined);
+      showToast('✓ Berhasil di-rename');
+      await loadFiles(currentFolderId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Rename gagal');
+    }
+  };
+
+  const handleMove = (file: ShareFile) => {
+    setMovePicker(file);
+  };
+
+  const handleMoveConfirm = async (destFolderId: string) => {
+    if (!token || !movePicker) return;
+    setProcessing(true);
+    try {
+      await shareMove(token, movePicker.id, destFolderId, movePicker.nodeId, password || undefined);
+      showToast('✓ File dipindah');
+      setMovePicker(null);
+      await loadFiles(currentFolderId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Move gagal');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleTrash = (filesToTrash: ShareFile[]) => {
+    setTrashConfirm(filesToTrash);
+  };
+
+  const handleTrashConfirm = async () => {
+    if (!token || !trashConfirm) return;
+    setProcessing(true);
+    const trashed: ShareFile[] = [];
+    try {
+      for (const f of trashConfirm) {
+        await shareTrash(token, f.id, f.nodeId, password || undefined);
+        trashed.push(f);
+      }
+      showToast(`✓ ${trashed.length} file ke trash`);
+      setTrashConfirm(null);
+      await loadFiles(currentFolderId);
+      if (trashed.length > 0) startUndoWindow(trashed);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Trash gagal');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const startUndoWindow = (trashedFiles: ShareFile[]) => {
+    if (undoTimerRef.current) window.clearInterval(undoTimerRef.current);
+    setUndoState({ files: trashedFiles, timeLeft: 8 });
+    undoTimerRef.current = window.setInterval(() => {
+      setUndoState((prev) => {
+        if (!prev) return null;
+        if (prev.timeLeft <= 1) {
+          if (undoTimerRef.current) window.clearInterval(undoTimerRef.current);
+          undoTimerRef.current = null;
+          return null;
+        }
+        return { ...prev, timeLeft: prev.timeLeft - 1 };
+      });
+    }, 1000);
+  };
+
+  const handleUndoTrash = async () => {
+    if (!token || !undoState) return;
+    if (undoTimerRef.current) window.clearInterval(undoTimerRef.current);
+    undoTimerRef.current = null;
+    const filesToRestore = undoState.files;
+    setUndoState(null);
+    let ok = 0;
+    for (const f of filesToRestore) {
+      try {
+        await shareUntrash(token, f.id, f.nodeId, password || undefined);
+        ok++;
+      } catch { /* skip */ }
+    }
+    showToast(`✓ ${ok} file di-restore`);
+    await loadFiles(currentFolderId);
+  };
+
+  const handleStar = async (file: ShareFile) => {
+    if (!token) return;
+    try {
+      await shareStar(token, file.id, !file.starred, file.nodeId, password || undefined);
+      showToast('✓ Berhasil di-star');
+      await loadFiles(currentFolderId);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Star gagal');
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, file: ShareFile) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x = Math.min(e.clientX, window.innerWidth - 220);
+    const y = Math.min(e.clientY, window.innerHeight - 260);
+    setContextMenu({ x, y, file });
+  };
+
+  // ============ Drag & drop ============
+  const canUpload = info?.role === 'editor' && info?.kind === 'folder';
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!canUpload) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDragging(false);
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      void handleUploadFiles(droppedFiles);
+    }
+  };
+
   // ============ Render states ============
 
-  if (loading) {
-    return <ShareLoadingState />;
-  }
+  if (loading) return <ShareLoadingState />;
 
   if (!token || error) {
     return <ShareErrorState message={error || 'Link tidak valid'} />;
@@ -220,10 +474,18 @@ export function SharePage() {
   if (!info) return <ShareErrorState message="Link tidak valid" />;
 
   const commentsEnabled = info.role === 'commenter' || info.role === 'editor';
+  const isEditor = info.role === 'editor';
   const imageItems = files.filter((f) => !f.isFolder);
+  const folderItems = files.filter((f) => f.isFolder);
 
   return (
-    <div className="share-app">
+    <div
+      className={'share-app' + (dragging ? ' dragging' : '')}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <ShareHeader
         title={info.name}
         role={info.role}
@@ -233,11 +495,28 @@ export function SharePage() {
         onOpenDetails={() => {
           if (detailsFile) setDetailsOpen(true);
         }}
+        isEditor={isEditor}
+        uploading={uploading}
+        onUpload={handleUploadClick}
+        onNewFolder={handleNewFolder}
+        onRefresh={handleRefresh}
       />
 
       <ShareBreadcrumb
         breadcrumbs={breadcrumbs}
         onClick={handleBreadcrumbClick}
+      />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          const fs = e.target.files;
+          if (fs && fs.length > 0) void handleUploadFiles(fs);
+          e.target.value = '';
+        }}
       />
 
       {filesLoading ? (
@@ -252,6 +531,8 @@ export function SharePage() {
           onItemClick={handleItemClick}
           onOpenDetails={openDetails}
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
+          isEditor={isEditor}
+          onContextMenu={handleContextMenu}
         />
       ) : (
         <ShareList
@@ -259,6 +540,8 @@ export function SharePage() {
           onItemClick={handleItemClick}
           onOpenDetails={openDetails}
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
+          isEditor={isEditor}
+          onContextMenu={handleContextMenu}
         />
       )}
 
@@ -289,6 +572,68 @@ export function SharePage() {
           commentsEnabled={commentsEnabled}
           onPostComment={handlePostComment}
           onClose={closeDetails}
+        />
+      )}
+
+      {contextMenu && (
+        <ShareEditorContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          file={contextMenu.file}
+          onClose={() => setContextMenu(null)}
+          onRename={() => handleRename(contextMenu.file)}
+          onMove={() => handleMove(contextMenu.file)}
+          onStar={() => handleStar(contextMenu.file)}
+          onTrash={() => handleTrash([contextMenu.file])}
+        />
+      )}
+
+      {trashConfirm && (
+        <ShareTrashConfirmModal
+          files={trashConfirm}
+          onConfirm={handleTrashConfirm}
+          onCancel={() => setTrashConfirm(null)}
+          processing={processing}
+        />
+      )}
+
+      {movePicker && (
+        <ShareMovePickerModal
+          folders={folderItems}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setMovePicker(null)}
+          processing={processing}
+        />
+      )}
+
+      {uploadQueue.length > 0 && (
+        <div className="share-upload-queue">
+          {uploadQueue.map((item, i) => (
+            <ShareUploadToast
+              key={i}
+              filename={item.filename}
+              progress={item.progress}
+              status={item.status}
+            />
+          ))}
+        </div>
+      )}
+
+      {dragging && (
+        <div className="share-dropzone-overlay">
+          <div className="share-dropzone-inner">
+            <div className="share-dropzone-icon">⬆</div>
+            <strong>Drop file untuk upload</strong>
+            <span>File akan masuk ke folder saat ini</span>
+          </div>
+        </div>
+      )}
+
+      {undoState && (
+        <ShareUndoToast
+          count={undoState.files.length}
+          timeLeft={undoState.timeLeft}
+          onUndo={handleUndoTrash}
         />
       )}
 

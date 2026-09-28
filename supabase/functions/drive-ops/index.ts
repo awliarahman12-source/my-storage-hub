@@ -1,4 +1,7 @@
 // Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
+// + Tahap 1: editor upload & folder
+// + Tahap 2: editor rename, move, trash, star
+// + Tahap 4: webhook notif + rate limit + undo untrash
 import {
   getEnv,
   getSupabase,
@@ -436,6 +439,78 @@ async function verifySharePw(s: ShareRow, password: string | null): Promise<bool
   return hash === s.password_hash;
 }
 
+// Cek folder apakah di dalam scope share (anti-escape)
+async function isFolderWithinShare(
+  node: StorageNodeRow,
+  folderId: string,
+  shareFolderId: string,
+): Promise<boolean> {
+  if (!folderId) return false;
+  if (folderId === shareFolderId) return true;
+  if (folderId === "root") return shareFolderId === "root";
+  let current = folderId;
+  for (let i = 0; i < 20; i++) {
+    try {
+      const meta = await getDriveFile(node, current);
+      const parent = meta.parents?.[0];
+      if (!parent) return false;
+      if (parent === shareFolderId) return true;
+      if (parent === "root") return shareFolderId === "root";
+      current = parent;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+// Cek apakah file termasuk dalam share (untuk kind=items)
+async function isFileInShareItems(
+  supabase: ReturnType<typeof getSupabase>,
+  shareId: string,
+  fileId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("share_items")
+    .select("id")
+    .eq("share_link_id", shareId)
+    .eq("file_id", fileId)
+    .maybeSingle();
+  return !!data;
+}
+
+// ============ Editor action notifier ============
+async function notifyEditorAction(
+  supabase: ReturnType<typeof getSupabase>,
+  eventType: string,
+  share: ShareRow,
+  detail: Record<string, unknown>,
+) {
+  try {
+    await dispatchWebhook(supabase, eventType, {
+      shareToken: share.token,
+      shareId: share.id,
+      shareName: share.name,
+      role: share.role,
+      timestamp: new Date().toISOString(),
+      ...detail,
+    });
+  } catch { /* best-effort */ }
+}
+
+// ============ Simple in-memory rate limit ============
+const uploadRateMap = new Map<string, number[]>();
+
+function checkUploadRate(token: string, maxPerMinute = 10): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const timestamps = (uploadRateMap.get(token) || []).filter((t) => now - t < windowMs);
+  if (timestamps.length >= maxPerMinute) return false;
+  timestamps.push(now);
+  uploadRateMap.set(token, timestamps);
+  return true;
+}
+
 // ============ Main handler ============
 
 Deno.serve(async (req: Request) => {
@@ -760,6 +835,382 @@ Deno.serve(async (req: Request) => {
         headers.set("Content-Type", fileMeta.mimeType || "application/octet-stream");
         headers.set("Content-Disposition", `attachment; filename="${fileMeta.name}"`);
         return new Response(res.body, { headers });
+      }
+
+      // Upload (editor only, folder share only) — WITH RATE LIMIT + WEBHOOK
+      if (rest[0] === "upload" && req.method === "POST") {
+        if (share.role !== "editor") {
+          throw new HttpError(403, "Only editors can upload");
+        }
+        if (share.kind !== "folder") {
+          throw new HttpError(400, "Upload only supported for folder shares");
+        }
+
+        // Rate limit: max 10 uploads/menit per share token
+        if (!checkUploadRate(share.token, 10)) {
+          throw new HttpError(429, "Terlalu banyak upload. Tunggu sebentar.");
+        }
+
+        const form = await req.formData();
+        const file = form.get("file") as File | null;
+        const parentFolderIdRaw = (form.get("parentFolderId") as string) || "";
+        const parentFolderId = parentFolderIdRaw || share.folder_id || "root";
+
+        if (!file) throw new HttpError(400, "No file provided");
+        if (file.size > 500 * 1024 * 1024) {
+          throw new HttpError(413, "File too large (max 500 MB)");
+        }
+
+        const shareRoot = share.folder_id || "root";
+        const inScope = await isFolderWithinShare(node, parentFolderId, shareRoot);
+        if (!inScope) {
+          throw new HttpError(403, "Target folder is outside the share scope");
+        }
+
+        const accessToken = await getValidAccessToken(node);
+        const uploaded = await uploadToDrive(
+          accessToken,
+          file.name,
+          file.type || "application/octet-stream",
+          parentFolderId,
+          file,
+        );
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_upload",
+          filename: file.name,
+          storage_node_id: node.id,
+          storage_node_name: node.display_name || node.email,
+          status: "success",
+          message: `Editor uploaded ${file.name} via share link`,
+        });
+
+        void notifyEditorAction(supabase, "share.uploaded", share, {
+          fileId: uploaded.id,
+          fileName: uploaded.name,
+          mimeType: uploaded.mimeType,
+          size: Number(uploaded.size || 0),
+          nodeId: node.id,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true, file: publicFile(uploaded, node) }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Create folder (editor only) — WITH WEBHOOK
+      if (rest[0] === "folder" && req.method === "POST") {
+        if (share.role !== "editor") {
+          throw new HttpError(403, "Only editors can create folders");
+        }
+        if (share.kind !== "folder") {
+          throw new HttpError(400, "Folder creation only supported for folder shares");
+        }
+
+        const body = await req.json();
+        const name = body.name;
+        const parentFolderIdRaw = body.parentFolderId || "";
+        const parentFolderId = parentFolderIdRaw || share.folder_id || "root";
+
+        if (!name || typeof name !== "string" || name.trim().length === 0 || name.length > 200) {
+          throw new HttpError(400, "Valid folder name required (max 200 chars)");
+        }
+
+        const shareRoot = share.folder_id || "root";
+        const inScope = await isFolderWithinShare(node, parentFolderId, shareRoot);
+        if (!inScope) {
+          throw new HttpError(403, "Target folder is outside the share scope");
+        }
+
+        const accessToken = await getValidAccessToken(node);
+        const res = await fetchWithRetry("https://www.googleapis.com/drive/v3/files", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: name.trim(),
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [parentFolderId && parentFolderId !== "root" ? parentFolderId : "root"],
+          }),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Create folder failed");
+        const folder = await res.json();
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_folder_create",
+          filename: name.trim(),
+          storage_node_id: node.id,
+          storage_node_name: node.display_name || node.email,
+          status: "success",
+          message: `Editor created folder ${name.trim()} via share link`,
+        });
+
+        void notifyEditorAction(supabase, "share.folder_created", share, {
+          folderId: folder.id,
+          folderName: folder.name,
+          parentId: parentFolderId,
+          nodeId: node.id,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true, folder: publicFile(folder, node) }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Rename (editor only) — WITH WEBHOOK
+      if (rest[0] === "rename" && req.method === "POST") {
+        if (share.role !== "editor") throw new HttpError(403, "Only editors can rename");
+        const body = await req.json();
+        const fileId = body.fileId;
+        const newName = body.newName;
+        const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
+
+        if (!fileId) throw new HttpError(400, "fileId required");
+        if (!newName || typeof newName !== "string" || newName.trim().length === 0 || newName.length > 255) {
+          throw new HttpError(400, "Valid newName required (max 255 chars)");
+        }
+
+        const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+
+        if (share.kind === "folder") {
+          const shareRoot = share.folder_id || "root";
+          const inScope = await isFolderWithinShare(effNode, fileId, shareRoot);
+          if (!inScope) throw new HttpError(403, "File is outside the share scope");
+        } else if (share.kind === "items") {
+          const ok = await isFileInShareItems(supabase, share.id, fileId);
+          if (!ok) throw new HttpError(403, "File is not part of this share");
+        } else {
+          throw new HttpError(400, "Rename not supported for single-file shares");
+        }
+
+        const t = await getValidAccessToken(effNode);
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newName.trim() }),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Rename failed");
+        const updated = await res.json();
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_rename",
+          filename: newName.trim(),
+          storage_node_id: effNode.id,
+          storage_node_name: effNode.display_name || effNode.email,
+          status: "success",
+          message: `Editor renamed a file to ${newName.trim()} via share link`,
+        });
+
+        void notifyEditorAction(supabase, "share.renamed", share, {
+          fileId,
+          newName: newName.trim(),
+          nodeId: effNode.id,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true, file: publicFile(updated, effNode) }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Move (editor only) — WITH WEBHOOK
+      if (rest[0] === "move" && req.method === "POST") {
+        if (share.role !== "editor") throw new HttpError(403, "Only editors can move files");
+        const body = await req.json();
+        const fileId = body.fileId;
+        const destFolderId = body.destFolderId;
+        const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
+
+        if (!fileId) throw new HttpError(400, "fileId required");
+        if (!destFolderId) throw new HttpError(400, "destFolderId required");
+        if (share.kind !== "folder") {
+          throw new HttpError(400, "Move only supported for folder shares");
+        }
+
+        const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+        const shareRoot = share.folder_id || "root";
+
+        const fileInScope = await isFolderWithinShare(effNode, fileId, shareRoot);
+        if (!fileInScope) throw new HttpError(403, "File is outside the share scope");
+
+        const destInScope = await isFolderWithinShare(effNode, destFolderId, shareRoot);
+        if (!destInScope) throw new HttpError(403, "Destination folder is outside the share scope");
+
+        const t = await getValidAccessToken(effNode);
+        const meta = await getDriveFile(effNode, fileId);
+        const currentParents = meta.parents || [];
+
+        const params = new URLSearchParams();
+        if (currentParents.length > 0) params.set("removeParents", currentParents.join(","));
+        if (destFolderId && destFolderId !== "root") params.set("addParents", destFolderId);
+
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Move failed");
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_move",
+          filename: meta.name,
+          storage_node_id: effNode.id,
+          storage_node_name: effNode.display_name || effNode.email,
+          status: "success",
+          message: `Editor moved ${meta.name} via share link`,
+        });
+
+        void notifyEditorAction(supabase, "share.moved", share, {
+          fileId,
+          destFolderId,
+          nodeId: effNode.id,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Trash (editor only, soft delete) — WITH WEBHOOK
+      if (rest[0] === "trash" && req.method === "POST") {
+        if (share.role !== "editor") throw new HttpError(403, "Only editors can trash files");
+        const body = await req.json();
+        const fileId = body.fileId;
+        const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
+
+        if (!fileId) throw new HttpError(400, "fileId required");
+
+        const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+
+        if (share.kind === "folder") {
+          const shareRoot = share.folder_id || "root";
+          if (fileId === shareRoot) {
+            throw new HttpError(403, "Cannot trash the shared folder itself");
+          }
+          const inScope = await isFolderWithinShare(effNode, fileId, shareRoot);
+          if (!inScope) throw new HttpError(403, "File is outside the share scope");
+        } else if (share.kind === "items") {
+          const ok = await isFileInShareItems(supabase, share.id, fileId);
+          if (!ok) throw new HttpError(403, "File is not part of this share");
+        } else {
+          throw new HttpError(400, "Trash not supported for single-file shares");
+        }
+
+        const meta = await getDriveFile(effNode, fileId).catch(() => null);
+        const t = await getValidAccessToken(effNode);
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ trashed: true }),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Trash failed");
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_trash",
+          filename: meta?.name || fileId,
+          storage_node_id: effNode.id,
+          storage_node_name: effNode.display_name || effNode.email,
+          status: "success",
+          message: `Editor trashed ${meta?.name || fileId} via share link`,
+        });
+
+        void notifyEditorAction(supabase, "share.trashed", share, {
+          fileId,
+          fileName: meta?.name || fileId,
+          nodeId: effNode.id,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Untrash / restore (editor only — untuk undo)
+      if (rest[0] === "untrash" && req.method === "POST") {
+        if (share.role !== "editor") throw new HttpError(403, "Only editors can restore");
+        const body = await req.json();
+        const fileId = body.fileId;
+        const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
+
+        if (!fileId) throw new HttpError(400, "fileId required");
+
+        const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+
+        if (share.kind === "folder") {
+          const shareRoot = share.folder_id || "root";
+          const inScope = await isFolderWithinShare(effNode, fileId, shareRoot);
+          if (!inScope) throw new HttpError(403, "File is outside the share scope");
+        } else if (share.kind === "items") {
+          const ok = await isFileInShareItems(supabase, share.id, fileId);
+          if (!ok) throw new HttpError(403, "File is not part of this share");
+        } else {
+          throw new HttpError(400, "Untrash not supported for single-file shares");
+        }
+
+        const t = await getValidAccessToken(effNode);
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ trashed: false }),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Restore failed");
+
+        void supabase.from("activity_logs").insert({
+          event_type: "share_untrash",
+          filename: fileId,
+          storage_node_id: effNode.id,
+          storage_node_name: effNode.display_name || effNode.email,
+          status: "success",
+          message: `Editor restored ${fileId} via share link`,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Star / unstar (editor only)
+      if (rest[0] === "star" && req.method === "POST") {
+        if (share.role !== "editor") throw new HttpError(403, "Only editors can star files");
+        const body = await req.json();
+        const fileId = body.fileId;
+        const starred = body.starred !== false;
+        const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
+
+        if (!fileId) throw new HttpError(400, "fileId required");
+
+        const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
+
+        if (share.kind === "folder") {
+          const shareRoot = share.folder_id || "root";
+          const inScope = await isFolderWithinShare(effNode, fileId, shareRoot);
+          if (!inScope) throw new HttpError(403, "File is outside the share scope");
+        } else if (share.kind === "items") {
+          const ok = await isFileInShareItems(supabase, share.id, fileId);
+          if (!ok) throw new HttpError(403, "File is not part of this share");
+        } else {
+          throw new HttpError(400, "Star not supported for single-file shares");
+        }
+
+        const t = await getValidAccessToken(effNode);
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ starred }),
+        });
+        if (!res.ok) throw new HttpError(res.status, "Star failed");
+
+        return new Response(
+          JSON.stringify({ success: true, starred }),
+          { headers: { ...ch, "Content-Type": "application/json" } },
+        );
       }
 
       // Comments GET

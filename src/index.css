@@ -1441,3 +1441,460 @@ body,
   background: rgba(0, 0, 0, 0.5);
   z-index: 1000;
 }
+
+/* ============================================================
+   SHARE EDITOR UI (Tahap 3)
+   ============================================================ */
+
+.share-editor-menu {
+  background: #1b1b1b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 190px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  animation: share-menu-in 0.12s ease-out;
+}
+
+@keyframes share-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.share-editor-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: transparent;
+  border: 0;
+  color: #e2e8f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.share-editor-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.share-editor-menu button.danger {
+  color: #f87171;
+}
+
+.share-editor-menu button.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* Tombol ⋮ di tile & list */
+.share-tile-menu-btn,
+.share-list-menu-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 3;
+  user-select: none;
+}
+
+.share-tile-menu-btn {
+  top: 8px;
+  right: 8px;
+}
+
+.share-list-menu-btn {
+  position: static;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 18px;
+}
+
+.share-tile:hover .share-tile-menu-btn,
+.share-tile.selected .share-tile-menu-btn {
+  opacity: 1;
+}
+
+.share-tile-menu-btn:hover,
+.share-list-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+@media (hover: none) {
+  .share-tile-menu-btn { opacity: 1; }
+}
+
+/* Modal (Trash / Move) */
+.share-editor-modal-wrap {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 20px;
+  animation: share-modal-fade-in 0.15s ease-out;
+}
+
+@keyframes share-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.share-editor-modal {
+  background: #1a1f2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 22px;
+  width: min(400px, 100%);
+  color: #fff;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  animation: share-modal-in 0.18s ease-out;
+}
+
+@keyframes share-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.share-editor-modal h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.share-editor-modal p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.share-editor-modal p strong {
+  color: #fff;
+}
+
+.share-editor-modal-hint {
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  margin: 0 0 18px !important;
+}
+
+.share-editor-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.share-btn.danger {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.share-btn.danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+/* Move picker */
+.share-move-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  margin-top: 4px;
+}
+
+.share-move-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  color: #e2e8f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.share-move-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.share-move-item.selected {
+  background: rgba(91, 92, 240, 0.2);
+  color: #a5b4fc;
+}
+
+.share-move-empty {
+  text-align: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+
+/* Upload toast */
+.share-upload-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #1a1f2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-width: 260px;
+  max-width: 360px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  animation: share-toast-in 0.2s ease-out;
+}
+
+.share-upload-toast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #fff;
+}
+
+.share-upload-toast-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(91, 92, 240, 0.2);
+  color: #a5b4fc;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.share-upload-toast-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-upload-toast-status {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.share-upload-toast-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.share-upload-toast-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5b5cf0, #7c3aed);
+  transition: width 0.2s ease;
+}
+
+/* PDF Preview wrap */
+.share-pdf-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+}
+
+.share-pdf-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .share-upload-toast {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-width: none;
+  }
+  .share-editor-modal {
+    padding: 18px;
+  }
+}
+
+/* ============================================================
+   SHARE EDITOR POLISH (Tahap 4)
+   ============================================================ */
+
+/* Dropzone overlay */
+.share-dropzone-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(91, 92, 240, 0.15);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: share-dropzone-fade 0.15s ease-out;
+}
+
+@keyframes share-dropzone-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.share-dropzone-inner {
+  background: #1a1f2e;
+  border: 2px dashed #5b5cf0;
+  border-radius: 20px;
+  padding: 40px 60px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.share-dropzone-icon {
+  font-size: 48px;
+  color: #a5b4fc;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.share-dropzone-inner strong {
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.share-dropzone-inner span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Upload queue container */
+.share-upload-queue {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.share-upload-queue .share-upload-toast {
+  position: static;
+  bottom: auto;
+  right: auto;
+}
+
+/* Undo toast */
+.share-undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1f2e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  z-index: 110;
+  animation: share-toast-in 0.2s ease-out;
+}
+
+.share-undo-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.share-undo-btn {
+  background: #5b5cf0;
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.share-undo-btn:hover {
+  background: #4f46e5;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .share-upload-queue {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-width: none;
+  }
+  .share-undo-toast {
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    transform: none;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  .share-undo-btn {
+    width: 100%;
+  }
+  .share-dropzone-inner {
+    padding: 30px 40px;
+  }
+  .share-dropzone-inner strong {
+    font-size: 16px;
+  }
+}
+
+/* Animasi share-app saat dragging */
+.share-app.dragging {
+  outline: 2px dashed #5b5cf0;
+  outline-offset: -8px;
+  transition: outline 0.15s;
+}
