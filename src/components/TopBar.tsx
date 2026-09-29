@@ -1,12 +1,13 @@
 import { useApp } from '@/context/AppContext';
 import { viewMeta } from '@/data/appData';
+import { Moon, Sun, Upload, Zap, LogOut } from 'lucide-react';
 
 interface TopBarProps {
   onOpenUpload: () => void;
 }
 
 export function TopBar({ onOpenUpload }: TopBarProps) {
-  const { currentView, toggleTheme, toast, logout } = useApp();
+  const { currentView, toggleTheme, toast, logout, theme } = useApp();
   const meta = viewMeta[currentView] || viewMeta.dashboard;
 
   return (
@@ -16,10 +17,21 @@ export function TopBar({ onOpenUpload }: TopBarProps) {
         <p>{meta.desc}</p>
       </div>
       <div className="actions">
-        <button className="btn" onClick={toggleTheme}>{'\u263E'} / {'\u2600'}</button>
-        <button className="btn" onClick={onOpenUpload}>{'\uFF0B'} Upload</button>
-        <button className="btn primary" onClick={() => toast('Quick upload aktif')}>Quick Upload</button>
-        <button className="btn" onClick={() => { void logout(); }} title="Logout">Logout</button>
+        <button className="btn icon-only" onClick={toggleTheme} title="Toggle theme">
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+        <button className="btn" onClick={onOpenUpload}>
+          <Upload size={16} />
+          <span>Upload</span>
+        </button>
+        <button className="btn primary" onClick={() => toast('Quick upload aktif')}>
+          <Zap size={16} />
+          <span>Quick Upload</span>
+        </button>
+        <button className="btn" onClick={() => { void logout(); }} title="Logout">
+          <LogOut size={16} />
+          <span>Logout</span>
+        </button>
       </div>
     </header>
   );
