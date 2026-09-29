@@ -1,5 +1,5 @@
 // Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
-// + Tahap 1-4 editor + Custom Slug
+// + Tahap 1-4 editor + Custom Slug + Subfolder nav in items
 import {
   getEnv,
   getSupabase,
@@ -567,6 +567,83 @@ Deno.serve(async (req: Request) => {
 
       if (rest[0] === "files" && req.method === "GET") {
         if (share.kind === "items") {
+          // ============ SUBFOLDER NAVIGATION ============
+          const pathParam = url.searchParams.get("path") || "";
+          if (pathParam) {
+            const { data: allItems } = await supabase
+              .from("share_items")
+              .select("*")
+              .eq("share_link_id", share.id);
+
+            const targetItem = (allItems || []).find((it: ShareItemRow) => it.file_id === pathParam);
+            if (!targetItem) throw new HttpError(404, "Folder not in share");
+
+            const itemMime = targetItem.mime_type || "";
+            if (itemMime !== "application/vnd.google-apps.folder") {
+              throw new HttpError(400, "Not a folder");
+            }
+
+            const folderNode = await getStorageNode(supabase, targetItem.node_id);
+            const query = `'${pathParam}' in parents and trashed = false`;
+            const result = await fetchDriveFiles(folderNode, query, 200, undefined, "folder,name");
+
+            const fileIds = (result.files || []).map((f: DriveFile) => f.id);
+            const commentCounts: Record<string, number> = {};
+            if (fileIds.length > 0) {
+              const { data: comments } = await supabase
+                .from("share_comments")
+                .select("file_id")
+                .eq("share_link_id", share.id)
+                .in("file_id", fileIds);
+              if (comments) {
+                for (const c of comments) {
+                  commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
+                }
+              }
+            }
+
+            const subFiles = (result.files || []).map((f: DriveFile) => {
+              const type = mapFileType(f.mimeType);
+              const canPreview =
+                type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" ||
+                f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
+                f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+                f.mimeType.startsWith("application/vnd.google-apps.");
+              const previewKind = computePreviewKind(type, f.mimeType);
+
+              const subQs = new URLSearchParams();
+              subQs.set("nodeId", targetItem.node_id);
+              if (pw) subQs.set("pw", pw);
+
+              return {
+                id: f.id,
+                nodeId: targetItem.node_id,
+                name: f.name,
+                type,
+                mimeType: f.mimeType,
+                size: f.size ? Number(f.size) : 0,
+                sizeLabel: f.size ? formatFileSize(Number(f.size)) : "—",
+                modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
+                modifiedRaw: f.modifiedTime || null,
+                isFolder: type === "folder",
+                canPreview,
+                previewKind,
+                driveName: folderNode.display_name || folderNode.email,
+                thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/thumb/${f.id}?${subQs.toString()}`,
+                streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/stream/${f.id}?${subQs.toString()}`,
+                downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/download/${f.id}?${subQs.toString()}`,
+                comments: commentCounts[f.id] || 0,
+              };
+            });
+
+            const breadcrumbs = [{ id: pathParam, name: targetItem.file_name }];
+
+            return new Response(JSON.stringify({ files: subFiles, breadcrumbs }), {
+              headers: { ...ch, "Content-Type": "application/json" },
+            });
+          }
+          // ============ END SUBFOLDER NAVIGATION ============
+
           const { data: items, error: itemsErr } = await supabase
             .from("share_items").select("*").eq("share_link_id", share.id);
           if (itemsErr) throw new Error("Failed to fetch share items");
