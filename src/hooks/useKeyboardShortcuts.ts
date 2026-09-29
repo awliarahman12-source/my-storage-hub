@@ -13,32 +13,45 @@ export interface KeyboardShortcut {
 export function useKeyboardShortcuts(shortcuts: KeyboardShortcut[]): void {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Guard: e.key bisa undefined pada IME/mobile/composition events
+      const eventKey = typeof e?.key === 'string' ? e.key.toLowerCase() : '';
+      if (!eventKey) return;
+
       // Ignore when typing in input/textarea
-      const target = e.target as HTMLElement;
+      const target = e?.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase() ?? '';
       const isTyping =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        !!target?.isContentEditable;
 
       for (const sc of shortcuts) {
+        if (!sc || typeof sc.key !== 'string') continue;
+        const scKey = sc.key.toLowerCase();
+        if (!scKey) continue;
+
         const ctrlMatch = sc.ctrl ? (e.ctrlKey || e.metaKey) : true;
         const metaMatch = sc.meta ? e.metaKey : true;
         const shiftMatch = sc.shift ? e.shiftKey : !e.shiftKey;
         const altMatch = sc.alt ? e.altKey : !e.altKey;
 
-        const keyMatch = e.key.toLowerCase() === sc.key.toLowerCase();
+        const keyMatch = eventKey === scKey;
 
         if (keyMatch && ctrlMatch && metaMatch && shiftMatch && altMatch) {
           // Allow ⌘K / Ctrl+K even in inputs
-          const isCmdK = (e.ctrlKey || e.metaKey) && sc.key.toLowerCase() === 'k';
+          const isCmdK = (e.ctrlKey || e.metaKey) && scKey === 'k';
           // Allow Esc everywhere
-          const isEscape = sc.key === 'Escape';
+          const isEscape = scKey === 'escape';
 
           if (isTyping && !isCmdK && !isEscape) continue;
 
           e.preventDefault();
           e.stopPropagation();
-          sc.handler();
+          try {
+            sc.handler();
+          } catch (err) {
+            console.error('Shortcut handler failed:', err);
+          }
           return;
         }
       }
