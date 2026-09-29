@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { DashboardFileIcon } from '@/components/FileIcon';
 import { BulkActionBar } from '@/components/BulkActionBar';
@@ -10,22 +10,44 @@ interface RecentFilesProps {
   onPreview: (file: DriveFileItem | DashboardFile) => void;
 }
 
+type FilterType = 'all' | 'pdf' | 'img' | 'video' | 'audio' | 'zip';
+
+const FILTER_OPTIONS: { id: FilterType; label: string }[] = [
+  { id: 'all', label: 'All files' },
+  { id: 'pdf', label: 'PDF only' },
+  { id: 'img', label: 'Images' },
+  { id: 'video', label: 'Videos' },
+  { id: 'audio', label: 'Audio' },
+  { id: 'zip', label: 'Archives' },
+];
+
 export function RecentFiles({ onPreview }: RecentFilesProps) {
   const { driveFiles, loadingFiles, storageNodes, starDriveFile, trashDriveFile, toast } = useApp();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterType, setFilterType] = useState<FilterType>('all');
   const hasDrives = storageNodes.filter((n) => n.status === 'connected').length > 0;
 
-  const recent = [...driveFiles]
-    .filter((f) => !f.isFolder && !f.trashed)
-    .sort((a, b) => String(b.modifiedRaw || '').localeCompare(String(a.modifiedRaw || '')))
-    .slice(0, 10);
+  const recent = useMemo(() => {
+    return [...driveFiles]
+      .filter((f) => !f.isFolder && !f.trashed)
+      .sort((a, b) => String(b.modifiedRaw || '').localeCompare(String(a.modifiedRaw || '')))
+      .slice(0, 10);
+  }, [driveFiles]);
 
-  const filtered = recent.filter(
-    (f) =>
-      f.name.toLowerCase().includes(query.toLowerCase()) ||
-      f.drive.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = useMemo(() => {
+    return recent.filter((f) => {
+      const matchQuery =
+        f.name.toLowerCase().includes(query.toLowerCase()) ||
+        f.drive.toLowerCase().includes(query.toLowerCase());
+      if (!matchQuery) return false;
+      if (filterType === 'all') return true;
+      return f.type === filterType;
+    });
+  }, [recent, query, filterType]);
+
+  const filterLabel = FILTER_OPTIONS.find((o) => o.id === filterType)?.label || 'All files';
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
     const ns = new Set(selected);
@@ -68,7 +90,6 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
     toast('Downloading ' + file.name);
   };
 
-  // ===== Bulk actions =====
   const bulkDownload = () => {
     selectedFiles.forEach((f) => handleDownload(f));
     toast(`Downloading ${selectedFiles.length} file(s)`);
@@ -115,7 +136,35 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <button className="filter" onClick={() => {}}>All files <ChevronDown size={12} /></button>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="filter"
+              onClick={() => setFilterOpen((v) => !v)}
+              type="button"
+            >
+              {filterLabel} <ChevronDown size={12} />
+            </button>
+            {filterOpen && (
+              <>
+                <div
+                  onClick={() => setFilterOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+                />
+                <div className="filter-dropdown" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 50 }}>
+                  {FILTER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      className={'filter-option' + (filterType === opt.id ? ' active' : '')}
+                      onClick={() => { setFilterType(opt.id); setFilterOpen(false); }}
+                      type="button"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <table>
           <thead>
@@ -145,7 +194,7 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
                     <td>
                       <div className="file-name">
                         {f.thumbnail && f.type === 'img' ? (
-                          <img src={f.thumbnail} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'cover' }} />
+                          <img src={f.thumbnail} alt="" />
                         ) : (
                           <DashboardFileIcon file={f} />
                         )}

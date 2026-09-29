@@ -3614,3 +3614,126 @@ svg {
     --card-min: 170px;
   }
 }
+
+/* ============================================================
+   DARK MODE — TABLE HOVER & FILE ICON FIX
+   ============================================================ */
+
+/* Table row hover di dark mode */
+.dark-theme tr:hover td {
+  background: rgba(99, 102, 241, 0.08) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme tr:hover td b,
+.dark-theme tr:hover td strong {
+  color: #ffffff !important;
+}
+
+/* Baris yang sedang "aktif" (selection highlight) di dark */
+.dark-theme tr[style*="rgba(99, 102, 241"] td {
+  color: #e5e7eb !important;
+}
+
+.dark-theme tr[style*="rgba(99, 102, 241"] td b,
+.dark-theme tr[style*="rgba(99, 102, 241"] td strong {
+  color: #ffffff !important;
+}
+
+/* File icon di table — konsisten ukuran & warna */
+.dark-theme .file-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0;
+  background: rgba(148, 163, 184, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+
+.dark-theme .file-icon.pdf {
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #f87171 !important;
+}
+
+.dark-theme .file-icon.zip {
+  background: rgba(249, 115, 22, 0.18) !important;
+  color: #fb923c !important;
+}
+
+.dark-theme .file-icon.img {
+  background: rgba(14, 165, 233, 0.18) !important;
+  color: #38bdf8 !important;
+}
+
+/* Light mode juga diseragamkan */
+.file-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0;
+}
+
+/* Icon Lucide di dalam file-icon */
+.file-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* File name di table — jarak konsisten dengan icon */
+.dark-theme .file-name {
+  gap: 10px !important;
+}
+
+.dark-theme .file-name b,
+.dark-theme .file-name strong {
+  color: #f1f5f9 !important;
+}
+
+/* Thumbnail kecil di table — samain ukuran dengan icon */
+.dark-theme .file-name img {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  object-fit: cover;
+}
+
+/* Tombol filter "All files" biar keliatan clickable */
+.dark-theme .filter {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  color: #e5e7eb !important;
+  cursor: pointer !important;
+  transition: all 0.15s;
+}
+
+.dark-theme .filter:hover {
+  background: rgba(51, 65, 85, 0.9) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  color: #ffffff !important;
+}
+
+.filter:disabled,
+.filter[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed !important;
+}
+
+/* Table text konsisten di dark */
+.dark-theme table td {
+  color: #cbd5e1 !important;
+}
+
+.dark-theme table td.muted {
+  color: #94a3b8 !important;
+}
+
+.dark-theme table th {
+  color: #94a3b8 !important;
+  background: rgba(15, 23, 42, 0.6) !important;
+}
