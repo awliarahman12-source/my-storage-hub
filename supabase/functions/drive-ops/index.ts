@@ -1,5 +1,5 @@
 // Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
-// + Tahap 1-4 editor + Custom Slug + Subfolder nav in items
+// + Tahap 1-4 editor + Custom Slug + Subfolder nav in items + Folder preview
 import {
   getEnv,
   getSupabase,
@@ -510,6 +510,27 @@ function checkUploadRate(token: string, maxPerMinute = 10): boolean {
   return true;
 }
 
+// Helper: fetch preview thumbs (up to 4 images) inside a folder
+async function fetchFolderPreviewThumbs(
+  node: StorageNodeRow,
+  folderId: string,
+  shareToken: string,
+  pw: string | null,
+): Promise<{ id: string; thumbnailUrl: string }[]> {
+  try {
+    const q = `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`;
+    const r = await fetchDriveFiles(node, q, 4, undefined, "name");
+    return (r.files || [])
+      .filter((f: DriveFile) => f.thumbnailLink)
+      .map((f: DriveFile) => ({
+        id: f.id,
+        thumbnailUrl: `/functions/v1/drive-ops/share/${shareToken}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 // ============ Main handler ============
 
 Deno.serve(async (req: Request) => {
@@ -567,21 +588,15 @@ Deno.serve(async (req: Request) => {
 
       if (rest[0] === "files" && req.method === "GET") {
         if (share.kind === "items") {
-          // ============ SUBFOLDER NAVIGATION ============
+          // SUBFOLDER NAVIGATION
           const pathParam = url.searchParams.get("path") || "";
           if (pathParam) {
             const { data: allItems } = await supabase
-              .from("share_items")
-              .select("*")
-              .eq("share_link_id", share.id);
+              .from("share_items").select("*").eq("share_link_id", share.id);
 
             const targetItem = (allItems || []).find((it: ShareItemRow) => it.file_id === pathParam);
             if (!targetItem) throw new HttpError(404, "Folder not in share");
-
-            const itemMime = targetItem.mime_type || "";
-            if (itemMime !== "application/vnd.google-apps.folder") {
-              throw new HttpError(400, "Not a folder");
-            }
+            if ((targetItem.mime_type || "") !== "application/vnd.google-apps.folder") throw new HttpError(400, "Not a folder");
 
             const folderNode = await getStorageNode(supabase, targetItem.node_id);
             const query = `'${pathParam}' in parents and trashed = false`;
@@ -591,15 +606,15 @@ Deno.serve(async (req: Request) => {
             const commentCounts: Record<string, number> = {};
             if (fileIds.length > 0) {
               const { data: comments } = await supabase
-                .from("share_comments")
-                .select("file_id")
-                .eq("share_link_id", share.id)
-                .in("file_id", fileIds);
-              if (comments) {
-                for (const c of comments) {
-                  commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
-                }
-              }
+                .from("share_comments").select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
+              if (comments) for (const c of comments) commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
+            }
+
+            // Fetch preview thumbs for subfolders
+            const subFolders = (result.files || []).filter((f: DriveFile) => f.mimeType === "application/vnd.google-apps.folder");
+            const subPreviewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
+            for (const sf of subFolders) {
+              subPreviewMap.set(sf.id, await fetchFolderPreviewThumbs(folderNode, sf.id, token, pw));
             }
 
             const subFiles = (result.files || []).map((f: DriveFile) => {
@@ -632,17 +647,17 @@ Deno.serve(async (req: Request) => {
                 thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/thumb/${f.id}?${subQs.toString()}`,
                 streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/stream/${f.id}?${subQs.toString()}`,
                 downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/download/${f.id}?${subQs.toString()}`,
+                previewThumbs: type === "folder" ? (subPreviewMap.get(f.id) || []) : undefined,
                 comments: commentCounts[f.id] || 0,
               };
             });
 
             const breadcrumbs = [{ id: pathParam, name: targetItem.file_name }];
-
             return new Response(JSON.stringify({ files: subFiles, breadcrumbs }), {
               headers: { ...ch, "Content-Type": "application/json" },
             });
           }
-          // ============ END SUBFOLDER NAVIGATION ============
+          // END SUBFOLDER NAVIGATION
 
           const { data: items, error: itemsErr } = await supabase
             .from("share_items").select("*").eq("share_link_id", share.id);
@@ -659,33 +674,16 @@ Deno.serve(async (req: Request) => {
           const allNodes = await getAllStorageNodes(supabase);
           const nodeMap = new Map(allNodes.map((n) => [n.id, n]));
 
-          // PREVIEW FOLDER CONTENTS: fetch first 4 thumbnails per folder
-          const previewPromises = (items || [])
-            .filter((it: ShareItemRow) => (it.mime_type || "") === "application/vnd.google-apps.folder")
-            .map(async (it: ShareItemRow) => {
-              const itemNode = nodeMap.get(it.node_id);
-              if (!itemNode) return { folderId: it.file_id, thumbs: [] };
-              try {
-                const q = `'${it.file_id}' in parents and trashed = false and mimeType contains 'image/'`;
-                const r = await fetchDriveFiles(itemNode, q, 4, undefined, "name");
-                const qs = new URLSearchParams();
-                qs.set("nodeId", it.node_id);
-                if (pw) qs.set("pw", pw);
-                const thumbs = (r.files || [])
-                  .filter((f: DriveFile) => f.thumbnailLink)
-                  .map((f: DriveFile) => ({
-                    id: f.id,
-                    thumbnailUrl: `/functions/v1/drive-ops/share/${token}/thumb/${f.id}?${qs.toString()}`,
-                  }));
-                return { folderId: it.file_id, thumbs };
-              } catch {
-                return { folderId: it.file_id, thumbs: [] };
-              }
-            });
-
-          const previewResults = await Promise.all(previewPromises);
+          // Folder preview thumbs
           const previewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
-          for (const p of previewResults) previewMap.set(p.folderId, p.thumbs);
+          for (const it of (items || [])) {
+            if ((it.mime_type || "") === "application/vnd.google-apps.folder") {
+              const itemNode = nodeMap.get(it.node_id);
+              if (itemNode) {
+                previewMap.set(it.file_id, await fetchFolderPreviewThumbs(itemNode, it.file_id, token, pw));
+              }
+            }
+          }
 
           const files = (items || []).map((it: ShareItemRow) => {
             const itemNode = nodeMap.get(it.node_id);
@@ -745,6 +743,7 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // KIND = FOLDER
         const folderId = url.searchParams.get("path") || share.folder_id || "root";
         const query = folderId === "root" ? "'root' in parents and trashed = false" : `'${folderId}' in parents and trashed = false`;
         const result = await fetchDriveFiles(node, query, 200, undefined, "folder,name");
@@ -755,6 +754,26 @@ Deno.serve(async (req: Request) => {
           const { data: comments } = await supabase.from("share_comments")
             .select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
           if (comments) for (const c of comments) commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
+        }
+
+        // FOLDER PREVIEW: fetch thumbs for all subfolders
+        const subFolderIds = (result.files || [])
+          .filter((f: DriveFile) => f.mimeType === "application/vnd.google-apps.folder")
+          .map((f: DriveFile) => f.id);
+
+        const previewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
+
+        if (subFolderIds.length > 0) {
+          const BATCH = 5;
+          for (let i = 0; i < subFolderIds.length; i += BATCH) {
+            const batch = subFolderIds.slice(i, i + BATCH);
+            const results = await Promise.all(
+              batch.map((sfId) => fetchFolderPreviewThumbs(node, sfId, token, pw))
+            );
+            for (let j = 0; j < batch.length; j++) {
+              previewMap.set(batch[j], results[j]);
+            }
+          }
         }
 
         const files = (result.files || []).map((f: DriveFile) => {
@@ -774,6 +793,7 @@ Deno.serve(async (req: Request) => {
             thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+            previewThumbs: type === "folder" ? (previewMap.get(f.id) || []) : undefined,
             comments: commentCounts[f.id] || 0,
           };
         });
@@ -876,7 +896,6 @@ Deno.serve(async (req: Request) => {
         return new Response(res.body, { headers });
       }
 
-      // Upload (editor)
       if (rest[0] === "upload" && req.method === "POST") {
         if (share.role !== "editor") throw new HttpError(403, "Only editors can upload");
         if (share.kind !== "folder") throw new HttpError(400, "Upload only supported for folder shares");
@@ -911,7 +930,6 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ success: true, file: publicFile(uploaded, node) }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
-      // Create folder (editor)
       if (rest[0] === "folder" && req.method === "POST") {
         if (share.role !== "editor") throw new HttpError(403, "Only editors can create folders");
         if (share.kind !== "folder") throw new HttpError(400, "Folder creation only supported for folder shares");
@@ -949,7 +967,6 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ success: true, folder: publicFile(folder, node) }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
-      // Rename / Move / Trash / Untrash / Star (editor)
       if (rest[0] === "rename" && req.method === "POST") {
         if (share.role !== "editor") throw new HttpError(403, "Only editors can rename");
         const body = await req.json();
@@ -1083,7 +1100,6 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ success: true, starred }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
-      // Comments GET
       if (rest[0] === "comments" && req.method === "GET") {
         const fileId = url.searchParams.get("fileId");
         if (!fileId) throw new HttpError(400, "fileId required");
@@ -1095,7 +1111,6 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ comments: data || [] }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
-      // Comments POST
       if (rest[0] === "comments" && req.method === "POST") {
         if (share.role !== "commenter" && share.role !== "editor") {
           throw new HttpError(403, "Only commenters and editors can post comments");
