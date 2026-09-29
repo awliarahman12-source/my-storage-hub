@@ -125,9 +125,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     const seen = new Set<string>();
     const out: DriveFileItem[] = [];
     for (const f of sorted) {
-      const key = `${f.id}::${f.nodeId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
       out.push(f);
     }
     return out;

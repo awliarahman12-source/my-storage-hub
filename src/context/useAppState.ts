@@ -338,9 +338,8 @@ export function useAppState(): AppContextValue {
       const result = await driveApi.fetchFiles(buildFetchOpts());
       const seen = new Set<string>();
       const deduped = result.files.filter((f) => {
-        const k = `${f.id}::${f.nodeId}`;
-        if (seen.has(k)) return false;
-        seen.add(k);
+        if (seen.has(f.id)) return false;
+        seen.add(f.id);
         return true;
       });
       setDriveFiles(deduped);
@@ -364,11 +363,10 @@ export function useAppState(): AppContextValue {
       const firstToken = Object.values(tokens)[0];
       const result = await driveApi.fetchFiles({ ...buildFetchOpts(), pageToken: firstToken });
       setDriveFiles((prev) => {
-        const seen = new Set(prev.map((f) => `${f.id}::${f.nodeId}`));
+        const seen = new Set(prev.map((f) => f.id));
         const merged = [...prev];
         for (const f of result.files) {
-          const k = `${f.id}::${f.nodeId}`;
-          if (!seen.has(k)) { merged.push(f); seen.add(k); }
+          if (!seen.has(f.id)) { merged.push(f); seen.add(f.id); }
         }
         return merged;
       });

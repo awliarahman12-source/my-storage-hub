@@ -888,6 +888,50 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+        // POST /drive-upload/folders/register-existing
+    if (path === "/folders/register-existing" && req.method === "POST") {
+      const body = await req.json();
+      const { nodeId, googleFolderId, folderName } = body;
+      if (!nodeId || !googleFolderId || !folderName) {
+        throw new Error("nodeId, googleFolderId, folderName required");
+      }
+
+      const { data: existingMapping } = await supabase
+        .from("folder_mappings")
+        .select("virtual_folder_id")
+        .eq("storage_node_id", nodeId)
+        .eq("google_folder_id", googleFolderId)
+        .maybeSingle();
+
+      if (existingMapping) {
+        return new Response(JSON.stringify({
+          virtualFolderId: existingMapping.virtual_folder_id,
+          created: false,
+        }), { headers: { ...ch, "Content-Type": "application/json" } });
+      }
+
+      const { data: vFolder, error: vErr } = await supabase
+        .from("virtual_folders")
+        .insert({
+          name: folderName,
+          parent_id: "00000000-0000-0000-0000-000000000001",
+        })
+        .select("id")
+        .single();
+      if (vErr || !vFolder) throw new Error("Failed to create virtual folder");
+
+      await supabase.from("folder_mappings").insert({
+        virtual_folder_id: vFolder.id,
+        storage_node_id: nodeId,
+        google_folder_id: googleFolderId,
+      });
+
+      return new Response(JSON.stringify({
+        virtualFolderId: vFolder.id,
+        created: true,
+      }), { headers: { ...ch, "Content-Type": "application/json" } });
+    }
+
     // POST /drive-upload/folders/:id/ensure-mapping
     const ensureMatch = path.match(/^\/folders\/([^/]+)\/ensure-mapping$/);
     if (ensureMatch && req.method === "POST") {
