@@ -57,10 +57,12 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
   const isFolderKind = isBulk || firstItem.isFolder;
   const pathPrefix = isFolderKind ? 'g' : 's';
 
-  const firstFolderItem = allItems.find((i) => i.isFolder);
+  const firstFolderItem = allItems.find((i) => i && i.isFolder);
+  const safeFirstFolderName = firstFolderItem?.name || 'Shared Folder';
+  const safeFirstName = firstItem?.name || 'Shared';
   const defaultName = firstFolderItem && isBulk
-    ? firstFolderItem.name
-    : (isBulk ? `Share ${allItems.length} items` : firstItem.name);
+    ? safeFirstFolderName
+    : (isBulk ? `Share ${allItems.length} items` : safeFirstName);
 
   const handleCreate = async () => {
     setBusy(true);
@@ -72,7 +74,7 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
       let shareItems: CreateShareItem[] | undefined;
 
       // AUTO-HANDLE: kalau ada folder di selection → pakai folder pertama jadi folder share
-      const firstFolder = allItems.find((i) => i.isFolder);
+      const firstFolder = allItems.find((i) => i && i.isFolder && i.id && i.nodeId);
 
       if (firstFolder) {
         kind = 'folder';
@@ -148,8 +150,8 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
                 display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
               }}>
                 <span>{(() => {
-                  const firstFolder = allItems.find((i) => i.isFolder);
-                  if (firstFolder && isBulk) return `Share folder "${firstFolder.name}"`;
+                  const firstFolder = allItems.find((i) => i && i.isFolder);
+                  if (firstFolder && isBulk) return `Share folder "${firstFolder.name || 'Shared Folder'}"`;
                   if (isBulk) return `${allItems.length} file akan di-share`;
                   return 'File akan di-share';
                 })()}</span>
@@ -164,8 +166,8 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
                   </span>
                 )}
               </div>
-              {allItems.slice(0, 20).map((it, idx) => (
-                <div key={`${it.nodeId}-${it.id}-${idx}`} style={{
+              {allItems.slice(0, 20).filter((it) => it && it.id).map((it, idx) => (
+                <div key={`${it.nodeId || ''}-${it.id}-${idx}`} style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 12,
                   borderBottom: idx < Math.min(allItems.length, 20) - 1 ? '1px solid var(--line)' : 'none',
                 }}>
@@ -173,7 +175,7 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
                     {it.isFolder ? <Folder size={14} /> : <FileText size={14} />}
                   </span>
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {it.name}
+                    {it.name || 'Unnamed'}
                   </span>
                   <span style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {it.drive}
@@ -232,7 +234,10 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
                   className="setting-input"
                   placeholder="foto-liburan-2024"
                   value={customSlug}
-                  onChange={(e) => setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                  onChange={(e) => {
+                    const raw = e?.target?.value ?? '';
+                    setCustomSlug(String(raw).toLowerCase().replace(/[^a-z0-9_-]/g, ''));
+                  }}
                   maxLength={60}
                   style={{ flex: 1 }}
                 />
