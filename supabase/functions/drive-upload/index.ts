@@ -1,4 +1,5 @@
 // Phase 9: Security hardening — session validation, input validation, security headers
+// + Federated folder: virtual_folders + folder_mappings
 import {
   getEnv,
   getSupabase,
@@ -143,7 +144,6 @@ async function selectBestNode(
   if (nodes.length === 0) return null;
 
   if (mode === "balanced") {
-    // Pick node with most free space to balance distribution
     let best: StorageNodeRow | null = null;
     let bestFree = -1;
     for (const n of nodes) {
@@ -155,21 +155,18 @@ async function selectBestNode(
           bestFree = free;
         }
       } else {
-        // No quota info — treat as eligible with lowest priority
         if (!best) best = n;
       }
     }
     return best || nodes[0];
   }
 
-  // automatic: pick first node with enough space (priority order)
   for (const n of nodes) {
     const quota = await getDriveQuotaBytes(n);
     if (quota.total !== null && quota.used !== null) {
       const free = quota.total - quota.used;
       if (free >= fileSizeBytes) return n;
     } else {
-      // No quota info — allow it
       return n;
     }
   }
@@ -195,7 +192,7 @@ async function logActivity(
       message: message || null,
     });
   } catch {
-    // Best-effort logging — don't fail the upload if logging fails
+    // Best-effort logging
   }
 }
 
@@ -217,6 +214,8 @@ function publicUploadSession(row: UploadSessionRow) {
   };
 }
 
+const ROOT_VIRTUAL_FOLDER_ID = "00000000-0000-0000-0000-000000000001";
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
   const ch = corsHeaders(origin);
@@ -229,7 +228,6 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const path = url.pathname.replace(/^\/drive-upload/, "");
 
-  // Require valid session for all endpoints
   const session = await validateSession(req);
   if (!session) {
     return errorResponse(401, "Unauthorized", origin);
@@ -238,7 +236,7 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = getSupabase();
 
-    // GET /drive-upload/activity — list recent activity logs
+    // GET /drive-upload/activity
     if (path === "/activity" && req.method === "GET") {
       const limit = parseInt(url.searchParams.get("limit") || "50");
       const { data, error } = await supabase
@@ -254,7 +252,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /drive-upload/sessions — list all upload sessions
+    // GET /drive-upload/sessions
     if (path === "/sessions" && req.method === "GET") {
       const { data, error } = await supabase
         .from("upload_sessions")
@@ -270,17 +268,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-upload/init — initialize an upload session
+    // POST /drive-upload/init
     if (path === "/init" && req.method === "POST") {
       const body = await req.json();
       const { nodeId, filename, mimeType, size, parentGoogleId } = body;
       if (!nodeId || !filename || !mimeType) throw new Error("nodeId, filename, mimeType required");
 
-      // Verify node exists and is connected
       const node = await getStorageNode(supabase, nodeId);
       if (node.status !== "connected") throw new Error("Storage node is not connected");
 
-      // Create upload session record
       const { data, error } = await supabase
         .from("upload_sessions")
         .insert({
@@ -304,19 +300,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-upload/start/:id — start/resume upload (receives file data)
+    // POST /drive-upload/start/:id
     const startMatch = path.match(/^\/start\/([^/]+)$/);
     if (startMatch && req.method === "POST") {
       const sessionId = startMatch[1];
 
-      const { data: session } = await supabase
+      const { data: sessionRowData } = await supabase
         .from("upload_sessions")
         .select("*")
         .eq("id", sessionId)
         .maybeSingle();
 
-      if (!session) throw new Error("Upload session not found");
-      const sessionRow = session as UploadSessionRow;
+      if (!sessionRowData) throw new Error("Upload session not found");
+      const sessionRow = sessionRowData as UploadSessionRow;
 
       if (sessionRow.status === "completed") {
         return new Response(JSON.stringify(publicUploadSession(sessionRow)), {
@@ -331,7 +327,6 @@ Deno.serve(async (req: Request) => {
       const node = await getStorageNode(supabase, sessionRow.storage_node_id);
       const token = await getValidAccessToken(node);
 
-      // Update status to uploading
       await supabase.from("upload_sessions").update({
         status: "uploading",
         updated_at: new Date().toISOString(),
@@ -339,7 +334,6 @@ Deno.serve(async (req: Request) => {
 
       const fileBuffer = await req.arrayBuffer();
 
-      // Build metadata for the file
       const metadata: Record<string, unknown> = {
         name: sessionRow.filename,
         mimeType: sessionRow.mime_type,
@@ -350,13 +344,10 @@ Deno.serve(async (req: Request) => {
         metadata.parents = ["root"];
       }
 
-      // Use resumable upload for files > 5MB, simple upload for smaller
       const isResumable = sessionRow.size > 5 * 1024 * 1024;
-
       let googleFileId: string | null = null;
 
       if (isResumable) {
-        // Initiate resumable upload session
         const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size", {
           method: "POST",
           headers: {
@@ -393,18 +384,14 @@ Deno.serve(async (req: Request) => {
           throw new Error(errMsg);
         }
 
-        // Save upload URL as upload_id
         await supabase.from("upload_sessions").update({
           upload_id: uploadUrl,
           updated_at: new Date().toISOString(),
         }).eq("id", sessionId);
 
-        // Upload the file content
         const uploadRes = await fetch(uploadUrl, {
           method: "PUT",
-          headers: {
-            "Content-Length": String(fileBuffer.byteLength),
-          },
+          headers: { "Content-Length": String(fileBuffer.byteLength) },
           body: fileBuffer,
         });
 
@@ -425,7 +412,6 @@ Deno.serve(async (req: Request) => {
         const uploaded = await uploadRes.json();
         googleFileId = uploaded.id;
       } else {
-        // Simple multipart upload
         const boundary = "my_storage_" + Date.now();
         const parts: Uint8Array[] = [];
         const encoder = new TextEncoder();
@@ -465,7 +451,6 @@ Deno.serve(async (req: Request) => {
         googleFileId = uploaded.id;
       }
 
-      // Mark as completed
       const { data: completedSession } = await supabase
         .from("upload_sessions")
         .update({
@@ -480,7 +465,6 @@ Deno.serve(async (req: Request) => {
 
       await logActivity(supabase, "upload_completed", sessionRow.filename, sessionRow.storage_node_id, node.email, "success", `Upload completed: ${sessionRow.filename} → ${node.email}`);
 
-      // Save file mapping
       if (googleFileId) {
         await supabase.from("file_mappings").upsert({
           storage_node_id: sessionRow.storage_node_id,
@@ -498,7 +482,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-upload/retry/:id — retry a failed upload
+    // POST /drive-upload/retry/:id
     const retryMatch = path.match(/^\/retry\/([^/]+)$/);
     if (retryMatch && req.method === "POST") {
       const sessionId = retryMatch[1];
@@ -527,7 +511,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-upload/cancel/:id — cancel an upload
+    // POST /drive-upload/cancel/:id
     const cancelMatch = path.match(/^\/cancel\/([^/]+)$/);
     if (cancelMatch && req.method === "POST") {
       const sessionId = cancelMatch[1];
@@ -554,7 +538,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // DELETE /drive-upload/sessions/:id — delete an upload session
+    // DELETE /drive-upload/sessions/:id
     const deleteMatch = path.match(/^\/sessions\/([^/]+)$/);
     if (deleteMatch && req.method === "DELETE") {
       const sessionId = deleteMatch[1];
@@ -564,7 +548,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /drive-upload/route — get routing recommendation
+    // POST /drive-upload/route
     if (path === "/route" && req.method === "POST") {
       const body = await req.json();
       const { fileSizeMB, mode, preferredNodeId } = body;
@@ -608,6 +592,196 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // ============ VIRTUAL FOLDER ENDPOINTS (Federated) ============
+
+    // GET /drive-upload/folders/tree
+    if (path === "/folders/tree" && req.method === "GET") {
+      const { data, error } = await supabase
+        .from("virtual_folders")
+        .select("id, name, parent_id, created_at")
+        .order("name");
+      if (error) throw new Error("Failed to fetch folder tree");
+      return new Response(JSON.stringify({ folders: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-upload/folders/create
+    if (path === "/folders/create" && req.method === "POST") {
+      const body = await req.json();
+      const { name, parentId } = body;
+      if (!name?.trim()) throw new Error("name required");
+
+      const { data, error } = await supabase
+        .from("virtual_folders")
+        .insert({
+          name: name.trim(),
+          parent_id: parentId || ROOT_VIRTUAL_FOLDER_ID,
+        })
+        .select("*")
+        .single();
+
+      if (error) throw new Error("Failed to create virtual folder");
+      return new Response(JSON.stringify({ folder: data }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /drive-upload/folders/:id/mappings
+    const mapMatch = path.match(/^\/folders\/([^/]+)\/mappings$/);
+    if (mapMatch && req.method === "GET") {
+      const virtualFolderId = mapMatch[1];
+      const { data, error } = await supabase
+        .from("folder_mappings")
+        .select("id, storage_node_id, google_folder_id, storage_nodes(email, display_name)")
+        .eq("virtual_folder_id", virtualFolderId);
+      if (error) throw new Error("Failed to fetch mappings");
+      return new Response(JSON.stringify({ mappings: data || [] }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // GET /drive-upload/folders/:id/files — FEDERATED listing
+    const filesMatch = path.match(/^\/folders\/([^/]+)\/files$/);
+    if (filesMatch && req.method === "GET") {
+      const virtualFolderId = filesMatch[1];
+
+      const { data: mappings, error: mapErr } = await supabase
+        .from("folder_mappings")
+        .select("storage_node_id, google_folder_id")
+        .eq("virtual_folder_id", virtualFolderId);
+
+      if (mapErr) throw new Error("Failed to fetch mappings");
+
+      if (!mappings || mappings.length === 0) {
+        return new Response(JSON.stringify({ files: [], virtualFolderId }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      const perDrive = await Promise.all(mappings.map(async (m) => {
+        try {
+          const node = await getStorageNode(supabase, m.storage_node_id);
+          const token = await getValidAccessToken(node);
+          const q = `'${m.google_folder_id}' in parents and trashed = false`;
+          const params = new URLSearchParams({
+            q, pageSize: "200",
+            fields: "files(id,name,mimeType,size,modifiedTime,createdTime,parents,thumbnailLink,webViewLink,webContentLink,starred,shared,iconLink)",
+            orderBy: "folder,name",
+          });
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) return { nodeId: m.storage_node_id, node, files: [] };
+          const data = await res.json();
+          return { nodeId: m.storage_node_id, node, files: data.files || [] };
+        } catch {
+          return { nodeId: m.storage_node_id, node: null, files: [] };
+        }
+      }));
+
+      const allFiles = perDrive.flatMap(({ node, files }) =>
+        files.map((f: any) => ({
+          id: f.id,
+          nodeId: (node as any)?.id || "",
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.size ? Number(f.size) : 0,
+          modifiedTime: f.modifiedTime,
+          createdTime: f.createdTime,
+          parentGoogleId: f.parents?.[0] || null,
+          thumbnailLink: f.thumbnailLink,
+          webViewLink: f.webViewLink,
+          webContentLink: f.webContentLink,
+          starred: f.starred || false,
+          shared: f.shared || false,
+          isFolder: f.mimeType === "application/vnd.google-apps.folder",
+          drive: (node as any)?.display_name || (node as any)?.email || "Unknown",
+          driveEmail: (node as any)?.email || "",
+        }))
+      );
+
+      allFiles.sort((a: any, b: any) => {
+        if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      return new Response(JSON.stringify({ files: allFiles, virtualFolderId }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-upload/folders/:id/ensure-mapping
+    const ensureMatch = path.match(/^\/folders\/([^/]+)\/ensure-mapping$/);
+    if (ensureMatch && req.method === "POST") {
+      const virtualFolderId = ensureMatch[1];
+      const body = await req.json();
+      const { nodeId } = body;
+      if (!nodeId) throw new Error("nodeId required");
+
+      const { data: existing } = await supabase
+        .from("folder_mappings")
+        .select("*")
+        .eq("virtual_folder_id", virtualFolderId)
+        .eq("storage_node_id", nodeId)
+        .maybeSingle();
+
+      if (existing) {
+        return new Response(JSON.stringify({ folderId: existing.google_folder_id, created: false }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: vFolder } = await supabase
+        .from("virtual_folders")
+        .select("name, parent_id")
+        .eq("id", virtualFolderId)
+        .maybeSingle();
+      if (!vFolder) throw new Error("Virtual folder not found");
+
+      const node = await getStorageNode(supabase, nodeId);
+      const token = await getValidAccessToken(node);
+
+      const searchQ = `name = '${vFolder.name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      const searchParams = new URLSearchParams({ q: searchQ, pageSize: "5", fields: "files(id,name,parents)" });
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?${searchParams}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      let googleFolderId: string | null = null;
+
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const found = (searchData.files || []).find((f: any) => f.parents?.[0] === "root");
+        if (found) googleFolderId = found.id;
+      }
+
+      if (!googleFolderId) {
+        const createRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: vFolder.name,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: ["root"],
+          }),
+        });
+        if (!createRes.ok) throw new Error("Failed to create folder in target drive");
+        const created = await createRes.json();
+        googleFolderId = created.id;
+      }
+
+      await supabase.from("folder_mappings").insert({
+        virtual_folder_id: virtualFolderId,
+        storage_node_id: nodeId,
+        google_folder_id: googleFolderId,
+      });
+
+      return new Response(JSON.stringify({ folderId: googleFolderId, created: true }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ error: "Not found" }), {
       status: 404,
       headers: { ...ch, "Content-Type": "application/json" },
@@ -619,5 +793,3 @@ Deno.serve(async (req: Request) => {
     return errorResponse(500, "Internal server error", origin);
   }
 });
-
-

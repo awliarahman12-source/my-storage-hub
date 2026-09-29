@@ -37,20 +37,17 @@ export function useAppState(): AppContextValue {
   const [nodesError, setNodesError] = useState(false);
   const [storagePool, setStoragePool] = useState<StoragePoolSummary | null>(null);
 
-  // Auth
   const [authLoading, setAuthLoading] = useState(true);
   const [authed, setAuthed] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [passcodeInitialized, setPasscodeInitialized] = useState(false);
 
-  // Phase 11 state
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(
     () => notifications.isNotificationSupported() && notifications.getNotificationPermission() === 'granted'
   );
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
-  // Phase 14: Share Links
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([]);
   const [loadingShares, setLoadingShares] = useState(false);
 
@@ -116,6 +113,7 @@ export function useAppState(): AppContextValue {
     setHasMoreFiles(false);
     setFilesError(false);
     setCurrentFolderId('root');
+    setCurrentVirtualFolderId(null); // FEDERATED
     setCurrentFolderName('My Storage');
     setBreadcrumbs([]);
     setUploadSessions([]);
@@ -152,6 +150,7 @@ export function useAppState(): AppContextValue {
   const [hasMoreFiles, setHasMoreFiles] = useState(false);
   const [filesError, setFilesError] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState('root');
+  const [currentVirtualFolderId, setCurrentVirtualFolderId] = useState<string | null>(null); // FEDERATED
   const [currentFolderName, setCurrentFolderName] = useState('My Storage');
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const pageTokensRef = useRef<Record<string, string> | undefined>(undefined);
@@ -278,12 +277,21 @@ export function useAppState(): AppContextValue {
     }
   }, [currentView, currentFolderId]);
 
+  // FEDERATED: refreshFiles cek virtualFolderId dulu
   const refreshFiles = useCallback(async () => {
     if (fileLoadAbort.current) fileLoadAbort.current.abort();
     setLoadingFiles(true);
     setFilesError(false);
     pageTokensRef.current = undefined;
     try {
+      // Kalau sedang di virtual folder & bukan view spesial → pakai federated
+      if (currentVirtualFolderId && (currentView === 'files' || currentView === 'dashboard')) {
+        const files = await driveApi.fetchFederatedFolderFiles(currentVirtualFolderId);
+        setDriveFiles(files);
+        setHasMoreFiles(false);
+        return;
+      }
+
       const result = await driveApi.fetchFiles(buildFetchOpts());
       setDriveFiles(result.files);
       setHasMoreFiles(result.hasMore);
@@ -295,7 +303,7 @@ export function useAppState(): AppContextValue {
     } finally {
       setLoadingFiles(false);
     }
-  }, [buildFetchOpts]);
+  }, [buildFetchOpts, currentVirtualFolderId, currentView]);
 
   const loadMoreFiles = useCallback(async () => {
     if (loadingMoreFiles || !hasMoreFiles) return;
@@ -325,6 +333,7 @@ export function useAppState(): AppContextValue {
   useEffect(() => {
     if (currentView !== 'files' && currentView !== 'dashboard') {
       setCurrentFolderId('root');
+      setCurrentVirtualFolderId(null); // FEDERATED
       setCurrentFolderName('My Storage');
       setBreadcrumbs([]);
     }
@@ -338,16 +347,44 @@ export function useAppState(): AppContextValue {
       setHasMoreFiles(false);
       setFilesError(false);
     }
-  }, [currentView, currentFolderId, storageNodes, refreshFiles]);
+  }, [currentView, currentFolderId, currentVirtualFolderId, storageNodes, refreshFiles]);
 
+  // FEDERATED: navigateToFolder terima virtualFolderId optional
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
     setCurrentFolderId(folderId);
+    // Coba cari virtual folder yang punya mapping ke google folder ID ini
+    void (async () => {
+      try {
+        const tree = await driveApi.fetchVirtualFolderTree();
+        for (const vf of tree) {
+          try {
+            const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
+            if (mappings.some((m) => m.google_folder_id === folderId)) {
+              setCurrentVirtualFolderId(vf.id);
+              return;
+            }
+          } catch { /* skip */ }
+        }
+        setCurrentVirtualFolderId(null);
+      } catch {
+        setCurrentVirtualFolderId(null);
+      }
+    })();
     setCurrentFolderName(folderName);
     setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
   }, []);
 
+  // FEDERATED: navigate pakai virtual folder ID eksplisit (dipanggil dari createVirtualFolder)
+  const navigateToVirtualFolder = useCallback((virtualFolderId: string, googleFolderId: string, folderName: string) => {
+    setCurrentVirtualFolderId(virtualFolderId);
+    setCurrentFolderId(googleFolderId);
+    setCurrentFolderName(folderName);
+    setBreadcrumbs((prev) => [...prev, { id: googleFolderId, name: folderName }]);
+  }, []);
+
   const navigateToRoot = useCallback(() => {
     setCurrentFolderId('root');
+    setCurrentVirtualFolderId(null); // FEDERATED
     setCurrentFolderName('My Storage');
     setBreadcrumbs([]);
   }, []);
@@ -359,6 +396,24 @@ export function useAppState(): AppContextValue {
       setCurrentFolderId(item.id);
       setCurrentFolderName(item.name);
       setBreadcrumbs((prev) => prev.slice(0, index + 1));
+      // Virtual ID tidak bisa di-restore dari breadcrumb, akan di-resolve otomatis
+      void (async () => {
+        try {
+          const tree = await driveApi.fetchVirtualFolderTree();
+          for (const vf of tree) {
+            try {
+              const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
+              if (mappings.some((m) => m.google_folder_id === item.id)) {
+                setCurrentVirtualFolderId(vf.id);
+                return;
+              }
+            } catch { /* skip */ }
+          }
+          setCurrentVirtualFolderId(null);
+        } catch {
+          setCurrentVirtualFolderId(null);
+        }
+      })();
     }
   }, [breadcrumbs, navigateToRoot]);
 
@@ -414,11 +469,27 @@ export function useAppState(): AppContextValue {
     toast('File deleted permanently');
   }, [toast]);
 
+  // FEDERATED: createDriveFolder bikin virtual folder + mapping
   const createDriveFolder = useCallback(async (nodeId: string, name: string, parentId?: string) => {
-    await driveApi.createFolder(nodeId, name, parentId);
-    toast('Folder created');
-    void refreshFiles();
-  }, [toast, refreshFiles]);
+    try {
+      // 1. Bikin virtual folder di DB (parent = root kalau tidak ada)
+      const virtualFolder = await driveApi.createVirtualFolder(name, parentId ? undefined : undefined);
+
+      // 2. Bikin folder fisik di node yang dipilih
+      const physical = await driveApi.createFolder(nodeId, name, parentId);
+
+      // 3. Bikin mapping virtual → physical
+      // Endpoint ensure-mapping akan bikin folder di node target (kalau belum ada), jadi tinggal panggil
+      await driveApi.ensureFolderMapping(virtualFolder.id, nodeId);
+
+      toast('Folder created');
+      // Navigasi ke folder baru (dengan virtual ID)
+      navigateToVirtualFolder(virtualFolder.id, physical.id, name);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to create folder');
+      throw err;
+    }
+  }, [toast, navigateToVirtualFolder]);
 
   const shareDriveFile = useCallback(async (fileId: string, nodeId: string, access: string) => {
     await driveApi.shareFile(fileId, nodeId, access);
@@ -492,6 +563,7 @@ export function useAppState(): AppContextValue {
     return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, ' ').trim();
   };
 
+  // FEDERATED: uploadFiles ensure-mapping sebelum upload
   const uploadFiles = useCallback(async (files: FileList | File[], targetNodeId?: string) => {
     if (!files || (files instanceof FileList ? files.length === 0 : (files as File[]).length === 0)) return;
     const connectedNodes = storageNodes.filter((n) => n.status === 'connected');
@@ -513,9 +585,21 @@ export function useAppState(): AppContextValue {
           nodeId = route.nodeId;
         }
 
+        // FEDERATED: kalau di virtual folder, ensure-mapping dulu supaya folder fisik ada di drive target
+        let effectiveParentId: string | undefined = currentFolderId !== 'root' ? currentFolderId : undefined;
+
+        if (currentVirtualFolderId) {
+          try {
+            const mapping = await driveApi.ensureFolderMapping(currentVirtualFolderId, nodeId);
+            effectiveParentId = mapping.folderId;
+          } catch (err) {
+            console.warn('ensure-mapping failed, falling back to current folder:', err);
+          }
+        }
+
         const session = await driveApi.initUpload(
           nodeId, cleanName, mimeType, file.size,
-          currentFolderId !== 'root' ? currentFolderId : undefined,
+          effectiveParentId,
         );
 
         fileRegistry.current.set(session.id, file);
@@ -525,7 +609,7 @@ export function useAppState(): AppContextValue {
             await uploadQueue.savePendingUpload({
               sessionId: session.id, nodeId, filename: cleanName, mimeType,
               size: file.size,
-              parentGoogleId: currentFolderId !== 'root' ? currentFolderId : null,
+              parentGoogleId: effectiveParentId || null,
               blob: file.slice(0, file.size),
               createdAt: Date.now(),
             });
@@ -541,7 +625,7 @@ export function useAppState(): AppContextValue {
     }
 
     void processQueue();
-  }, [storageNodes, routingMode, currentFolderId, toast, processQueue]);
+  }, [storageNodes, routingMode, currentFolderId, currentVirtualFolderId, toast, processQueue]);
 
   const retryUpload = useCallback(async (sessionId: string) => {
     const file = fileRegistry.current.get(sessionId);
@@ -604,7 +688,7 @@ export function useAppState(): AppContextValue {
     }
   }, []);
 
-  // ============ Share Links (Phase 14) ============
+  // ============ Share Links ============
 
   const refreshShares = useCallback(async () => {
     setLoadingShares(true);
@@ -668,7 +752,6 @@ export function useAppState(): AppContextValue {
     toast('Backup JSON exported');
   }, [storageName, storageNodes, storagePool, driveFiles, uploadSessions, routingMode, toast]);
 
-  // Resume pending uploads from IndexedDB on mount
   useEffect(() => {
     if (!authed) return;
     if (!uploadQueue.isIndexedDBSupported()) return;
@@ -711,7 +794,8 @@ export function useAppState(): AppContextValue {
     setNodePriority, toggleNodeEnabled,
     driveFiles, loadingFiles, loadingMoreFiles, hasMoreFiles, filesError,
     currentFolderId, currentFolderName, breadcrumbs,
-    navigateToFolder, navigateToRoot, navigateToBreadcrumb,
+    currentVirtualFolderId, // FEDERATED
+    navigateToFolder, navigateToVirtualFolder, navigateToRoot, navigateToBreadcrumb, // FEDERATED: navigateToVirtualFolder
     refreshFiles, loadMoreFiles, searchDriveFiles,
     renameDriveFile, trashDriveFile, untrashDriveFile, starDriveFile,
     copyDriveFile, moveDriveFile, deleteDriveFile, createDriveFolder, shareDriveFile,

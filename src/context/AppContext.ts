@@ -57,9 +57,11 @@ export interface AppContextValue {
   hasMoreFiles: boolean;
   filesError: boolean;
   currentFolderId: string;
+  currentVirtualFolderId: string | null;
   currentFolderName: string;
   breadcrumbs: BreadcrumbItem[];
   navigateToFolder: (folderId: string, folderName: string) => void;
+  navigateToVirtualFolder: (virtualFolderId: string, googleFolderId: string, folderName: string) => void;
   navigateToRoot: () => void;
   navigateToBreadcrumb: (index: number) => void;
   refreshFiles: () => Promise<void>;

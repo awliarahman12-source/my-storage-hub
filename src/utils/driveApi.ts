@@ -867,3 +867,125 @@ export {
   searchDb,
 } from './dbSearch';
 export type { DbSearchOptions, DbSearchResult } from './dbSearch';
+
+// ============ Virtual Folder (Federated) ============
+
+const ROOT_VIRTUAL_FOLDER_ID = '00000000-0000-0000-0000-000000000001';
+
+function getSessionHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('ms_session_token');
+  if (token) h['X-Session-Token'] = token;
+  return h;
+}
+
+const SUPABASE_URL_V = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_V = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+function authHeaders(): Record<string, string> {
+  return {
+    ...getSessionHeaders(),
+    Authorization: `Bearer ${SUPABASE_ANON_V}`,
+  };
+}
+
+export async function createVirtualFolder(name: string, parentId?: string): Promise<{ id: string; name: string; parent_id: string | null }> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/create`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ name, parentId }),
+  });
+  if (!res.ok) throw new Error(`Failed to create virtual folder (${res.status})`);
+  const data = await res.json();
+  return data.folder;
+}
+
+export async function fetchVirtualFolderTree(): Promise<{ id: string; name: string; parent_id: string | null }[]> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/tree`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch folder tree (${res.status})`);
+  const data = await res.json();
+  return data.folders || [];
+}
+
+export async function fetchVirtualFolderMappings(virtualFolderId: string): Promise<{ storage_node_id: string; google_folder_id: string }[]> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/${virtualFolderId}/mappings`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch mappings (${res.status})`);
+  const data = await res.json();
+  return data.mappings || [];
+}
+
+export async function ensureFolderMapping(virtualFolderId: string, nodeId: string): Promise<{ folderId: string; created: boolean }> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/${virtualFolderId}/ensure-mapping`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ nodeId }),
+  });
+  if (!res.ok) throw new Error(`Failed to ensure mapping (${res.status})`);
+  return await res.json();
+}
+
+export async function fetchFederatedFolderFiles(virtualFolderId: string): Promise<DriveFileItem[]> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/${virtualFolderId}/files`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch federated files (${res.status})`);
+  const data = await res.json();
+
+  // Convert hasil endpoint ke DriveFileItem
+  return (data.files || []).map((f: any) => {
+    const type = (() => {
+      const m = f.mimeType;
+      if (m === 'application/vnd.google-apps.folder') return 'folder';
+      if (m.startsWith('image/')) return 'img';
+      if (m.startsWith('video/')) return 'video';
+      if (m === 'application/pdf') return 'pdf';
+      if (m.startsWith('audio/')) return 'audio';
+      if (m.includes('zip') || m.includes('compressed')) return 'zip';
+      return 'file';
+    })();
+
+    const size = f.size || 0;
+    const sizeLabel = (() => {
+      if (!size) return '—';
+      const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0, x = size;
+      while (x >= 1024 && i < 4) { x /= 1024; i++; }
+      return (x < 10 && i ? x.toFixed(1) : Math.round(x)) + ' ' + u[i];
+    })();
+
+    const formatDate = (d: string | null) => {
+      if (!d) return '—';
+      try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+      catch { return d; }
+    };
+
+    return {
+      id: f.id,
+      nodeId: f.nodeId,
+      name: f.name,
+      type: type as any,
+      mimeType: f.mimeType,
+      size,
+      sizeLabel,
+      modified: formatDate(f.modifiedTime),
+      modifiedRaw: f.modifiedTime || null,
+      createdRaw: f.createdTime || null,
+      drive: f.drive,
+      driveEmail: f.driveEmail,
+      starred: f.starred || false,
+      trashed: false,
+      shared: f.shared || false,
+      thumbnail: f.thumbnailLink || null,
+      webViewLink: f.webViewLink || null,
+      webContentLink: f.webContentLink || null,
+      isFolder: f.isFolder,
+      parentGoogleId: f.parentGoogleId || null,
+    };
+  });
+}
+
+export { ROOT_VIRTUAL_FOLDER_ID };
