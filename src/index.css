@@ -3317,3 +3317,167 @@ svg {
   color: #fca5a5 !important;
   border-color: rgba(239, 68, 68, 0.4) !important;
 }
+
+/* ============================================================
+   BULK ACTION BAR (Google Drive style)
+   ============================================================ */
+
+.bulk-action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 100px;
+  z-index: 500;
+  max-width: calc(100vw - 32px);
+  animation: bulkBarIn 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 20px 60px rgba(31, 38, 135, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.dark-theme .bulk-action-bar {
+  background: rgba(30, 41, 59, 0.88);
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+@keyframes bulkBarIn {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.bulk-action-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.dark-theme .bulk-action-count { color: #e5e7eb; }
+
+.bulk-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bulk-action-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bulk-action-list::-webkit-scrollbar { display: none; }
+
+.bulk-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.dark-theme .bulk-action-btn { color: #cbd5e1; }
+
+.bulk-action-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.dark-theme .bulk-action-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}
+
+.bulk-action-btn.danger { color: #dc2626; }
+.dark-theme .bulk-action-btn.danger { color: #f87171; }
+
+.bulk-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.dark-theme .bulk-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.bulk-action-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(148, 163, 184, 0.15);
+  color: #64748b;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.bulk-action-close:hover {
+  background: rgba(148, 163, 184, 0.3);
+  color: #1e293b;
+}
+
+.dark-theme .bulk-action-close {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.dark-theme .bulk-action-close:hover {
+  background: rgba(148, 163, 184, 0.3);
+  color: #f1f5f9;
+}
+
+@media (max-width: 640px) {
+  .bulk-action-bar {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    padding: 8px 12px;
+    gap: 8px;
+    border-radius: 20px;
+  }
+  @keyframes bulkBarIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .bulk-action-btn span { display: none; }
+  .bulk-action-btn { padding: 10px; }
+  .bulk-action-count { font-size: 12px; padding-right: 8px; }
+}
