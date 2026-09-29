@@ -57,7 +57,10 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
   const isFolderKind = isBulk || firstItem.isFolder;
   const pathPrefix = isFolderKind ? 'g' : 's';
 
-  const defaultName = isBulk ? `Share ${allItems.length} items` : firstItem.name;
+  const firstFolderItem = allItems.find((i) => i.isFolder);
+  const defaultName = firstFolderItem && isBulk
+    ? firstFolderItem.name
+    : (isBulk ? `Share ${allItems.length} items` : firstItem.name);
 
   const handleCreate = async () => {
     setBusy(true);
@@ -68,13 +71,22 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
       let fileId: string | undefined;
       let shareItems: CreateShareItem[] | undefined;
 
-      if (isBulk) {
+      // AUTO-HANDLE: kalau ada folder di selection → pakai folder pertama jadi folder share
+      const firstFolder = allItems.find((i) => i.isFolder);
+
+      if (firstFolder) {
+        kind = 'folder';
+        nodeId = firstFolder.nodeId;
+        folderId = firstFolder.id;
+        if (isBulk) {
+          toast(`Share folder "${firstFolder.name}" dibuat. Item lain tidak diikutkan.`);
+        }
+      } else if (isBulk) {
+        // Semua file → items share
         kind = 'items';
         shareItems = allItems.map((i) => ({
           nodeId: i.nodeId, fileId: i.id, fileName: i.name, mimeType: i.mimeType, size: i.size,
         }));
-      } else if (firstItem.isFolder) {
-        kind = 'folder'; nodeId = firstItem.nodeId; folderId = firstItem.id;
       } else {
         kind = 'file'; nodeId = firstItem.nodeId; fileId = firstItem.id;
       }
@@ -135,7 +147,12 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
                 textTransform: 'uppercase', letterSpacing: 0.5,
                 display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
               }}>
-                <span>{isBulk ? `${allItems.length} file akan di-share` : 'File akan di-share'}</span>
+                <span>{(() => {
+                  const firstFolder = allItems.find((i) => i.isFolder);
+                  if (firstFolder && isBulk) return `Share folder "${firstFolder.name}"`;
+                  if (isBulk) return `${allItems.length} file akan di-share`;
+                  return 'File akan di-share';
+                })()}</span>
                 {isMixedDrive && (
                   <span style={{
                     padding: '2px 8px', borderRadius: 10,

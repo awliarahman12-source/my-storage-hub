@@ -614,13 +614,15 @@ Deno.serve(async (req: Request) => {
           const files = (items || []).map((it: ShareItemRow) => {
             const itemNode = nodeMap.get(it.node_id);
             const mime = it.mime_type || "application/octet-stream";
-            const type = mapFileType(mime);
-            const canPreview =
+            const isFolderItem = mime === "application/vnd.google-apps.folder";
+            const type = isFolderItem ? "folder" : mapFileType(mime);
+            const canPreview = !isFolderItem && (
               type === "img" || type === "video" || type === "audio" || type === "pdf" ||
               mime.startsWith("text/") || mime.includes("json") ||
               mime.includes("xml") || mime.includes("markdown") ||
-              mime.startsWith("application/vnd.google-apps.");
-            const previewKind = computePreviewKind(type, mime);
+              mime.startsWith("application/vnd.google-apps.")
+            );
+            const previewKind = isFolderItem ? "folder" : computePreviewKind(type, mime);
 
             const qs = new URLSearchParams();
             qs.set("nodeId", it.node_id);
@@ -633,16 +635,16 @@ Deno.serve(async (req: Request) => {
               type,
               mimeType: mime,
               size: Number(it.size || 0),
-              sizeLabel: formatFileSize(Number(it.size || 0)),
+              sizeLabel: isFolderItem ? "—" : formatFileSize(Number(it.size || 0)),
               modified: "—",
               modifiedRaw: null,
-              isFolder: false,
+              isFolder: isFolderItem,
               canPreview,
               previewKind,
               driveName: itemNode?.display_name || itemNode?.email || "Drive",
-              thumbnailUrl: `/functions/v1/drive-ops/share/${token}/thumb/${it.file_id}?${qs.toString()}`,
-              streamUrl: `/functions/v1/drive-ops/share/${token}/stream/${it.file_id}?${qs.toString()}`,
-              downloadUrl: `/functions/v1/drive-ops/share/${token}/download/${it.file_id}?${qs.toString()}`,
+              thumbnailUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/thumb/${it.file_id}?${qs.toString()}`,
+              streamUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/stream/${it.file_id}?${qs.toString()}`,
+              downloadUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/download/${it.file_id}?${qs.toString()}`,
               comments: commentCounts[it.file_id] || 0,
             };
           });

@@ -166,13 +166,19 @@ export function SharePage() {
 
   const handleItemClick = (file: ShareFile) => {
     if (file.isFolder) {
-      setCurrentFolderId(file.id);
-      setLightboxIndex(-1);
-    } else {
-      const imageItems = files.filter((f) => !f.isFolder);
-      const idx = imageItems.findIndex((f) => f.id === file.id);
-      if (idx >= 0) setLightboxIndex(idx);
+      // Folder dalam share kind='folder' → browse
+      if (info?.kind === 'folder') {
+        setCurrentFolderId(file.id);
+        setLightboxIndex(-1);
+      } else {
+        // Folder dalam share kind='items' → tidak bisa browse
+        showToast('Folder di share multi-item tidak bisa dibuka. Buat share folder tunggal untuk browse.');
+      }
+      return;
     }
+    const imageItems = files.filter((f) => !f.isFolder);
+    const idx = imageItems.findIndex((f) => f.id === file.id);
+    if (idx >= 0) setLightboxIndex(idx);
   };
 
   const handleBreadcrumbClick = (index: number) => {
