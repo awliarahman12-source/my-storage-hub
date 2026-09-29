@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { V3Icon } from '@/components/FileIcon';
-import { getDownloadUrl, fetchFolders, fetchAllFolders, logActivity } from '@/utils/driveApi';
+import { getDownloadUrl, fetchAllFolders, logActivity } from '@/utils/driveApi';
 import type { FolderEntry } from '@/utils/driveApi';
 import { ShareModal } from '@/components/modals/ShareModal';
 import { CreateShareModal } from '@/components/share/CreateShareModal';
@@ -18,17 +18,22 @@ import {
   Star,
   Trash2,
   X,
+  AlignJustify,
+  Grid2x2,
+  LayoutGrid,
   ChevronRight,
-  ChevronLeft,
   Grid3x3,
   List,
   MoreVertical,
   Folder,
   Move,
   Pencil,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 
 type SortMode = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest' | 'size-largest' | 'size-smallest' | 'type';
+type Density = 'compact' | 'normal' | 'comfortable';
 
 const SORT_LABELS: Record<SortMode, string> = {
   'name-asc': 'Name A–Z',
@@ -75,6 +80,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const hasDrives = storageNodes.filter((n) => n.status === 'connected').length > 0;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<'grid' | 'list'>(() => (localStorage.getItem('v3View') as 'grid' | 'list') || 'grid');
+  const [density, setDensity] = useState<Density>(
+    () => (localStorage.getItem('v3Density') as Density) || 'normal'
+  );
   const [sort, setSort] = useState<SortMode>('name-asc');
   const [showDrop, setShowDrop] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -95,18 +103,20 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const sorted = [...(searchResults || driveFiles)].sort((a, b) => {
-    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
-    switch (sort) {
-      case 'name-desc': return String(b.name).localeCompare(String(a.name));
-      case 'date-newest': return String(b.modifiedRaw || '').localeCompare(String(a.modifiedRaw || ''));
-      case 'date-oldest': return String(a.modifiedRaw || '').localeCompare(String(b.modifiedRaw || ''));
-      case 'size-largest': return (b.size || 0) - (a.size || 0);
-      case 'size-smallest': return (a.size || 0) - (b.size || 0);
-      case 'type': return String(a.type).localeCompare(String(b.type));
-      default: return String(a.name).localeCompare(String(b.name));
-    }
-  });
+  const sorted = useMemo(() => {
+    return [...(searchResults || driveFiles)].sort((a, b) => {
+      if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+      switch (sort) {
+        case 'name-desc': return String(b.name).localeCompare(String(a.name));
+        case 'date-newest': return String(b.modifiedRaw || '').localeCompare(String(a.modifiedRaw || ''));
+        case 'date-oldest': return String(a.modifiedRaw || '').localeCompare(String(b.modifiedRaw || ''));
+        case 'size-largest': return (b.size || 0) - (a.size || 0);
+        case 'size-smallest': return (a.size || 0) - (b.size || 0);
+        case 'type': return String(a.type).localeCompare(String(b.type));
+        default: return String(a.name).localeCompare(String(b.name));
+      }
+    });
+  }, [searchResults, driveFiles, sort]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -151,7 +161,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  });
+  }, [sorted, selected]);
 
   const select = (id: string, e: React.MouseEvent) => {
     if (e.shiftKey && selected.size) {
@@ -399,6 +409,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     localStorage.setItem('v3View', v);
   };
 
+  const setDensityAndSave = (d: Density) => {
+    setDensity(d);
+    localStorage.setItem('v3Density', d);
+  };
+
   const handleSearchInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
@@ -517,6 +532,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <option key={k} value={k}>{SORT_LABELS[k]}</option>
           ))}
         </select>
+        <div className="density-toggle">
+          <button className={density === 'compact' ? 'active' : ''} onClick={() => setDensityAndSave('compact')} title="Compact — banyak file"><AlignJustify size={14} /></button>
+          <button className={density === 'normal' ? 'active' : ''} onClick={() => setDensityAndSave('normal')} title="Normal"><LayoutGrid size={14} /></button>
+          <button className={density === 'comfortable' ? 'active' : ''} onClick={() => setDensityAndSave('comfortable')} title="Comfortable — thumbnail besar"><Grid2x2 size={14} /></button>
+        </div>
         <div className="view-toggle">
           <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')} title="Grid view"><Grid3x3 size={14} /></button>
           <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')} title="List view"><List size={14} /></button>
@@ -579,7 +599,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           )}
         </div>
       ) : view === 'grid' ? (
-        <div className="file-grid">
+        <div className="file-grid" data-density={density}>
           {sorted.map((f) => (
             <div
               key={f.id}
@@ -772,15 +792,15 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             </div>
           )}
           <button onClick={() => contextAction('open')}>Open</button>
-          <button onClick={() => contextAction('download')}>Download</button>
-          <button onClick={() => contextAction('share-link')}>🔗 Create Share Link</button>
-          <button onClick={() => contextAction('share')}>👥 Google Drive Share</button>
-          <button onClick={() => contextAction('rename')}>Rename</button>
-          <button onClick={() => contextAction('move')}>Move to{'\u2026'}</button>
-          <button onClick={() => contextAction('copy')}>Copy</button>
-          <button onClick={() => contextAction('star')}>{contextMenu.file.starred ? 'Remove from Starred' : 'Add to Starred'}</button>
-          <button onClick={() => contextAction('details')}>Properties</button>
-          <button className="danger" onClick={() => contextAction('trash')}>Delete</button>
+          <button onClick={() => contextAction('download')}><Download size={14} /> Download</button>
+          <button onClick={() => contextAction('share-link')}><Link2 size={14} /> Create Share Link</button>
+          <button onClick={() => contextAction('share')}><Users size={14} /> Google Drive Share</button>
+          <button onClick={() => contextAction('rename')}><Pencil size={14} /> Rename</button>
+          <button onClick={() => contextAction('move')}><FolderInput size={14} /> Move to…</button>
+          <button onClick={() => contextAction('copy')}><Copy size={14} /> Copy</button>
+          <button onClick={() => contextAction('star')}><Star size={14} /> {contextMenu.file.starred ? 'Remove from Starred' : 'Add to Starred'}</button>
+          <button onClick={() => contextAction('details')}><Info size={14} /> Properties</button>
+          <button className="danger" onClick={() => contextAction('trash')}><Trash2 size={14} /> Delete</button>
         </div>
       )}
 

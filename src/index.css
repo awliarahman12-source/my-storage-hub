@@ -3481,3 +3481,136 @@ svg {
   .bulk-action-btn { padding: 10px; }
   .bulk-action-count { font-size: 12px; padding-right: 8px; }
 }
+
+/* ============================================================
+   AUTO-SCALE GRID + DENSITY CONTROL
+   ============================================================ */
+
+/* Auto-responsive grid — ukuran kartu menyesuaikan layar */
+.file-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 200px), 1fr)) !important;
+  gap: var(--card-gap, 14px) !important;
+  transition: gap 0.25s ease;
+}
+
+/* Density modes */
+.file-grid[data-density="compact"] {
+  --card-min: 150px;
+  --card-gap: 10px;
+}
+.file-grid[data-density="normal"] {
+  --card-min: 200px;
+  --card-gap: 14px;
+}
+.file-grid[data-density="comfortable"] {
+  --card-min: 260px;
+  --card-gap: 18px;
+}
+
+/* File card — name & meta truncate biar rapi */
+.file-card .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+
+.file-card .file-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+
+/* File thumb — proporsional dengan card size */
+.file-card .file-thumb {
+  aspect-ratio: 1.4;
+  height: auto;
+  min-height: 60px;
+}
+
+/* List view — semua kolom truncate, biar tidak wrap */
+.file-row > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-row > div > strong,
+.file-row > div > div > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+/* Density toggle styling */
+.density-toggle {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.density-toggle button {
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.density-toggle button:hover {
+  background: var(--soft, #f6f7fb);
+  color: #6366f1;
+}
+
+.density-toggle button.active {
+  background: var(--hover, #f0f1ff);
+  color: #6366f1;
+}
+
+.dark-theme .density-toggle {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(30, 41, 59, 0.5);
+}
+
+.dark-theme .density-toggle button {
+  color: #94a3b8;
+}
+
+.dark-theme .density-toggle button:hover,
+.dark-theme .density-toggle button.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+/* Small screens — auto adjust */
+@media (max-width: 640px) {
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .file-grid[data-density="comfortable"] {
+    --card-min: 160px;
+  }
+}
+
+/* Wide screens — jaga kartu tidak terlalu kecil */
+@media (min-width: 1920px) {
+  .file-grid[data-density="normal"] {
+    --card-min: 220px;
+  }
+  .file-grid[data-density="compact"] {
+    --card-min: 170px;
+  }
+}
