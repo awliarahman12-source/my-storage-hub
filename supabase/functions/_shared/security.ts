@@ -107,11 +107,8 @@ export interface SessionInfo {
 }
 
 export async function validateSession(req: Request): Promise<SessionInfo | null> {
-  let token = req.headers.get("X-Session-Token");
-  if (!token) {
-    const url = new URL(req.url);
-    token = url.searchParams.get("st");
-  }
+  const token = req.headers.get("X-Session-Token");
+  // SECURITY: URL param `st` dihapus — session token tidak boleh di URL (bocor ke referrer/history)
   if (!token) return null;
 
   const tokenHash = await sha256Hex(token);
@@ -252,6 +249,104 @@ export function validateNumber(value: unknown, field: string, min = 0, max = Inf
     throw new HttpError(400, `${field} must be a number between ${min} and ${max}`);
   }
   return value;
+}
+
+// ============ Password Hashing (PBKDF2) ============
+// Menggantikan SHA-256 yang terlalu cepat untuk password hashing
+
+const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_KEYLEN = 32; // 256-bit
+const PBKDF2_HASH = "SHA-256";
+
+function bytesToHex(arr: Uint8Array): string {
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+function constantTimeEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Hash password dengan PBKDF2.
+ * Format output: `pbkdf2$<iterations>$<salt-hex>$<hash-hex>`
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: PBKDF2_HASH },
+    key,
+    PBKDF2_KEYLEN * 8,
+  );
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(new Uint8Array(bits))}`;
+}
+
+/**
+ * Verifikasi password terhadap hash yang disimpan.
+ * Support dua format:
+ * - `pbkdf2$...` — format baru
+ * - 64-char hex — legacy SHA-256 (untuk backward compat)
+ */
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (!stored) return false;
+
+  // Legacy SHA-256 (tanpa prefix pbkdf2$)
+  if (!stored.startsWith("pbkdf2$")) {
+    const legacyHash = await sha256Hex(password);
+    return constantTimeEq(legacyHash, stored);
+  }
+
+  // Format baru: pbkdf2$iterations$salt$hash
+  const parts = stored.split("$");
+  if (parts.length !== 4) return false;
+
+  const iterations = parseInt(parts[1], 10);
+  if (!Number.isFinite(iterations) || iterations < 1000) return false;
+
+  const salt = hexToBytes(parts[2]);
+  const expectedHex = parts[3];
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations, hash: PBKDF2_HASH },
+    key,
+    PBKDF2_KEYLEN * 8,
+  );
+  const actualHex = bytesToHex(new Uint8Array(bits));
+  return constantTimeEq(actualHex, expectedHex);
+}
+
+/**
+ * Cek apakah hash menggunakan format lama (SHA-256) → perlu di-upgrade.
+ */
+export function isLegacyHash(stored: string): boolean {
+  return !!stored && !stored.startsWith("pbkdf2$");
 }
 
 // ============ Error Response ============

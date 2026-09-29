@@ -36,6 +36,7 @@ import {
   ShareUploadToast,
   ShareUndoToast,
 } from '@/components/share/ShareEditorMenu';
+import { Search, X } from 'lucide-react';
 
 function parseRoute(): { token: string | null; kind: 'folder' | 'file' } {
   const path = window.location.pathname;
@@ -56,24 +57,21 @@ export function SharePage() {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState(false);
 
-  // Folder navigation
   const [currentFolderId, setCurrentFolderId] = useState('');
   const [files, setFiles] = useState<ShareFile[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<{ id: string; name: string }[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
 
-  // UI
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchQuery, setSearchQuery] = useState('');
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [detailsFile, setDetailsFile] = useState<ShareFile | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [toast, setToast] = useState('');
 
-  // Comments
   const [comments, setComments] = useState<ShareComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
 
-  // Editor states
   const [uploading, setUploading] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<{ filename: string; progress: number; status: 'uploading' | 'success' | 'error' }[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: ShareFile } | null>(null);
@@ -86,13 +84,11 @@ export function SharePage() {
   const dragCounterRef = useRef(0);
   const undoTimerRef = useRef<number | null>(null);
 
-  // ============ Toast helper ============
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
   };
 
-  // ============ Load share info ============
   useEffect(() => {
     if (!token) {
       setError('Link tidak valid');
@@ -117,21 +113,18 @@ export function SharePage() {
     })();
   }, [token]);
 
-  // ============ Load files ============
   useEffect(() => {
     if (!token || !passwordOk || !info) return;
     void loadFiles(currentFolderId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, passwordOk, info, currentFolderId]);
 
-  // Auto-open lightbox for single-file share
   useEffect(() => {
     if (info?.kind === 'file' && files.length === 1 && lightboxIndex < 0) {
       setLightboxIndex(0);
     }
   }, [info?.kind, files.length, lightboxIndex]);
 
-  // Reset body overflow when lightbox closed
   useEffect(() => {
     if (lightboxIndex < 0) {
       document.body.style.overflow = '';
@@ -159,7 +152,6 @@ export function SharePage() {
     }
   };
 
-  // ============ Handlers ============
   const handleVerify = async () => {
     if (!token) return;
     const res = await verifySharePassword(token, password);
@@ -221,8 +213,6 @@ export function SharePage() {
     }
   };
 
-  // ============ Editor handlers ============
-
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -251,7 +241,6 @@ export function SharePage() {
     const queue = arr.map((f) => ({ filename: f.name, progress: 0, status: 'uploading' as const }));
     setUploadQueue(queue);
 
-    // Simulasi progress
     const progressTimers = queue.map((_, i) =>
       window.setInterval(() => {
         setUploadQueue((prev) =>
@@ -264,7 +253,6 @@ export function SharePage() {
       }, 250)
     );
 
-    // Upload sequential biar tidak overload
     for (let i = 0; i < arr.length; i++) {
       await uploadSingleFile(arr[i], i);
     }
@@ -412,16 +400,13 @@ export function SharePage() {
     setContextMenu({ x, y, file });
   };
 
-  // ============ Drag & drop ============
   const canUpload = info?.role === 'editor' && info?.kind === 'folder';
 
   const handleDragEnter = (e: React.DragEvent) => {
     if (!canUpload) return;
     e.preventDefault();
     dragCounterRef.current++;
-    if (e.dataTransfer.types.includes('Files')) {
-      setDragging(true);
-    }
+    if (e.dataTransfer.types.includes('Files')) setDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -451,8 +436,6 @@ export function SharePage() {
     }
   };
 
-  // ============ Render states ============
-
   if (loading) return <ShareLoadingState />;
 
   if (!token || error) {
@@ -475,8 +458,14 @@ export function SharePage() {
 
   const commentsEnabled = info.role === 'commenter' || info.role === 'editor';
   const isEditor = info.role === 'editor';
-  const imageItems = files.filter((f) => !f.isFolder);
-  const folderItems = files.filter((f) => f.isFolder);
+
+  const searchLower = searchQuery.trim().toLowerCase();
+  const visibleFiles = searchLower
+    ? files.filter((f) => f.name.toLowerCase().includes(searchLower))
+    : files;
+
+  const imageItems = visibleFiles.filter((f) => !f.isFolder);
+  const folderItems = visibleFiles.filter((f) => f.isFolder);
 
   return (
     <div
@@ -519,15 +508,40 @@ export function SharePage() {
         }}
       />
 
+      {info.kind === 'folder' && files.length > 0 && (
+        <div className="share-search-bar">
+          <Search size={16} />
+          <input
+            type="text"
+            placeholder="Cari file..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              className="share-search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
       {filesLoading ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,.5)' }}>
           Loading...
         </div>
       ) : files.length === 0 ? (
         <ShareEmptyState />
+      ) : visibleFiles.length === 0 ? (
+        <div style={{ padding: 60, textAlign: 'center', color: 'rgba(255,255,255,.5)' }}>
+          Tidak ada file yang cocok dengan "{searchQuery}"
+        </div>
       ) : viewMode === 'grid' ? (
         <ShareGrid
-          files={files}
+          files={visibleFiles}
           onItemClick={handleItemClick}
           onOpenDetails={openDetails}
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
@@ -536,7 +550,7 @@ export function SharePage() {
         />
       ) : (
         <ShareList
-          files={files}
+          files={visibleFiles}
           onItemClick={handleItemClick}
           onOpenDetails={openDetails}
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
@@ -546,7 +560,7 @@ export function SharePage() {
       )}
 
       <div className="share-footer">
-        {files.length} items · {info.view_count} views · Powered by My Storage Hub
+        {visibleFiles.length} items · {info.view_count} views · Powered by My Storage Hub
       </div>
 
       {lightboxIndex >= 0 && imageItems[lightboxIndex] && (

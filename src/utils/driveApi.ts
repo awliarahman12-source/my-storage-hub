@@ -989,3 +989,57 @@ export async function fetchFederatedFolderFiles(virtualFolderId: string): Promis
 }
 
 export { ROOT_VIRTUAL_FOLDER_ID };
+
+export async function registerExistingFolder(
+  nodeId: string,
+  googleFolderId: string,
+  folderName: string,
+  parentVirtualId?: string,
+  parentGoogleId?: string,
+): Promise<{ virtualFolderId: string; created: boolean }> {
+  const res = await fetch(`${SUPABASE_URL_V}/functions/v1/drive-upload/folders/register-existing`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ nodeId, googleFolderId, folderName, parentVirtualId, parentGoogleId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to register folder (${res.status})`);
+  }
+  return await res.json();
+}
+export async function renameVirtualFolder(
+  virtualFolderId: string,
+  newName: string,
+): Promise<{ success: boolean; renamed: number; failed: number }> {
+  const res = await fetch(
+    `${SUPABASE_URL_V}/functions/v1/drive-upload/folders/${virtualFolderId}/rename-virtual`,
+    {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ newName }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to rename folder (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function deleteVirtualFolder(
+  virtualFolderId: string,
+): Promise<{ success: boolean; trashed: number; failed: number }> {
+  const res = await fetch(
+    `${SUPABASE_URL_V}/functions/v1/drive-upload/folders/${virtualFolderId}/delete-virtual`,
+    {
+      method: 'POST',
+      headers: authHeaders(),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to delete folder (${res.status})`);
+  }
+  return await res.json();
+}

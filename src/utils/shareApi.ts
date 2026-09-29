@@ -26,6 +26,7 @@ export type ShareKind = 'folder' | 'file' | 'items';
 export interface ShareLink {
   id: string;
   token: string;
+  custom_slug: string | null;
   name: string;
   kind: ShareKind;
   node_id: string;
@@ -59,11 +60,10 @@ export interface CreateShareParams {
   items?: CreateShareItem[];
   role: ShareRole;
   password?: string;
+  customSlug?: string;
   expiresInDays?: number;
   maxDownloads?: number;
 }
-
-// ============ Authenticated APIs ============
 
 export async function createShare(params: CreateShareParams): Promise<{ share: ShareLink; url: string }> {
   const res = await fetch(`${url()}/shares`, {
@@ -113,8 +113,6 @@ export async function updateShare(
   return data.share as ShareLink;
 }
 
-// ============ Public APIs (tanpa auth) ============
-
 export interface PublicShareInfo {
   name: string;
   kind: ShareKind;
@@ -126,9 +124,7 @@ export interface PublicShareInfo {
 }
 
 export async function fetchPublicShareInfo(token: string): Promise<PublicShareInfo> {
-  const res = await fetch(`${publicUrl()}/share/${token}`, {
-    credentials: 'omit',
-  });
+  const res = await fetch(`${publicUrl()}/share/${token}`, { credentials: 'omit' });
   if (!res.ok) {
     if (res.status === 404) throw new Error('NOT_FOUND');
     if (res.status === 410) throw new Error('EXPIRED');
@@ -176,9 +172,7 @@ export async function fetchShareFolder(
   const params = new URLSearchParams();
   if (path) params.set('path', path);
   if (password) params.set('pw', password);
-  const res = await fetch(`${publicUrl()}/share/${token}/files?${params}`, {
-    credentials: 'omit',
-  });
+  const res = await fetch(`${publicUrl()}/share/${token}/files?${params}`, { credentials: 'omit' });
   if (!res.ok) throw new Error(`Failed (${res.status})`);
   return await res.json();
 }
@@ -207,8 +201,6 @@ export function shareDownloadUrl(token: string, fileId: string, password?: strin
   return `${publicUrl()}/share/${token}/download/${fileId}${qs ? `?${qs}` : ''}`;
 }
 
-// ============ Comments ============
-
 export interface ShareComment {
   id: string;
   file_id: string;
@@ -221,9 +213,7 @@ export async function fetchComments(token: string, fileId: string, password?: st
   const params = new URLSearchParams();
   params.set('fileId', fileId);
   if (password) params.set('pw', password);
-  const res = await fetch(`${publicUrl()}/share/${token}/comments?${params}`, {
-    credentials: 'omit',
-  });
+  const res = await fetch(`${publicUrl()}/share/${token}/comments?${params}`, { credentials: 'omit' });
   if (!res.ok) throw new Error(`Failed (${res.status})`);
   const data = await res.json();
   return (data.comments || []) as ShareComment[];
@@ -246,8 +236,6 @@ export async function postComment(
   const data = await res.json();
   return data.comment as ShareComment;
 }
-
-// ============ Editor Actions (Tahap 3) ============
 
 function pwQS(password?: string): string {
   return password ? `?pw=${encodeURIComponent(password)}` : '';
@@ -352,6 +340,25 @@ export async function shareTrash(
   return await res.json();
 }
 
+export async function shareUntrash(
+  token: string,
+  fileId: string,
+  nodeId?: string,
+  password?: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${publicUrl()}/share/${token}/untrash${pwQS(password)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    body: JSON.stringify({ fileId, nodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Restore failed (${res.status})`);
+  }
+  return await res.json();
+}
+
 export async function shareStar(
   token: string,
   fileId: string,
@@ -372,29 +379,8 @@ export async function shareStar(
   return await res.json();
 }
 
-// ============ Helpers ============
-
-export function buildShareUrl(token: string, kind: ShareKind): string {
+export function buildShareUrl(tokenOrSlug: string, kind: ShareKind): string {
   const origin = window.location.origin;
   const pathPrefix = kind === 'file' ? 's' : 'g';
-  return `${origin}/${pathPrefix}/${token}`;
-}
-
-export async function shareUntrash(
-  token: string,
-  fileId: string,
-  nodeId?: string,
-  password?: string,
-): Promise<{ success: boolean }> {
-  const res = await fetch(`${publicUrl()}/share/${token}/untrash${pwQS(password)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'omit',
-    body: JSON.stringify({ fileId, nodeId }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Restore failed (${res.status})`);
-  }
-  return await res.json();
+  return `${origin}/${pathPrefix}/${tokenOrSlug}`;
 }

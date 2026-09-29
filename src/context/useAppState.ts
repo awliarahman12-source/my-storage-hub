@@ -396,6 +396,43 @@ export function useAppState(): AppContextValue {
     }
   }, [currentView, currentFolderId, currentVirtualFolderId, storageNodes, refreshFiles]);
 
+  // LAZY MIGRATION: cek folder existing yang belum punya virtual ID
+  useEffect(() => {
+    if (currentView !== 'files' && currentView !== 'dashboard') return;
+    if (currentVirtualFolderId) return; // sudah punya
+
+    const currentF = driveFiles.find((f) => f.id === currentFolderId && f.isFolder);
+    if (!currentF || currentF.id === 'root' || !currentF.nodeId) return;
+    if (currentF.nodeId === '__virtual__') return;
+
+    // Cek apakah folder fisik ini sudah punya virtual folder
+    void (async () => {
+      try {
+        const tree = await driveApi.fetchVirtualFolderTree();
+        for (const vf of tree) {
+          try {
+            const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
+            if (mappings.some((m) => m.google_folder_id === currentFolderId)) {
+              setCurrentVirtualFolderId(vf.id);
+              return;
+            }
+          } catch { /* skip */ }
+        }
+        // Belum ada → register
+        const result = await driveApi.registerExistingFolder(
+          currentF.nodeId,
+          currentFolderId,
+          currentF.name,
+          undefined,
+          currentF.parentGoogleId || undefined,
+        );
+        setCurrentVirtualFolderId(result.virtualFolderId);
+      } catch (err) {
+        console.warn('Auto lazy migration failed:', err);
+      }
+    })();
+  }, [currentFolderId, driveFiles, currentView, currentVirtualFolderId]);
+
   // FEDERATED: navigateToFolder terima virtualFolderId optional
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
     // Kalau id berformat 'vf:uuid' → ini virtual folder
@@ -408,10 +445,8 @@ export function useAppState(): AppContextValue {
         try {
           const mappings = await driveApi.fetchVirtualFolderMappings(vfId);
           if (mappings.length > 0) {
-            // Pakai mapping pertama sebagai google folder ID acuan
             setCurrentFolderId(mappings[0].google_folder_id);
           } else {
-            // Belum ada mapping fisik → buka folder baru nanti saat upload
             setCurrentFolderId('root');
           }
         } catch {
@@ -420,6 +455,51 @@ export function useAppState(): AppContextValue {
       })();
       return;
     }
+
+    setCurrentFolderId(folderId);
+    setCurrentFolderName(folderName);
+    setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
+
+    // LAZY MIGRATION: cari virtual folder yang match dengan google folder ID
+    void (async () => {
+      try {
+        const tree = await driveApi.fetchVirtualFolderTree();
+        for (const vf of tree) {
+          try {
+            const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
+            if (mappings.some((m) => m.google_folder_id === folderId)) {
+              // Sudah punya virtual folder → pakai
+              setCurrentVirtualFolderId(vf.id);
+              return;
+            }
+          } catch { /* skip */ }
+        }
+
+        // Belum ada virtual folder → LAZY MIGRATE
+        // Cari nodeId dari folder fisik via driveFiles state
+        const matchingFile = driveFiles.find((f) => f.id === folderId && f.isFolder);
+        if (matchingFile && matchingFile.nodeId) {
+          try {
+            const result = await driveApi.registerExistingFolder(
+              matchingFile.nodeId,
+              folderId,
+              folderName,
+              undefined,
+              matchingFile.parentGoogleId || undefined,
+            );
+            setCurrentVirtualFolderId(result.virtualFolderId);
+          } catch (err) {
+            console.warn('Lazy migration failed:', err);
+            setCurrentVirtualFolderId(null);
+          }
+        } else {
+          setCurrentVirtualFolderId(null);
+        }
+      } catch {
+        setCurrentVirtualFolderId(null);
+      }
+    })();
+  }, [driveFiles]);
 
     setCurrentFolderId(folderId);
     void (async () => {
@@ -494,12 +574,48 @@ export function useAppState(): AppContextValue {
   // ============ File Operations ============
 
   const renameDriveFile = useCallback(async (fileId: string, nodeId: string, newName: string) => {
+    // Kalau virtual folder (id format 'vf:uuid' atau nodeId '__virtual__')
+    if (fileId.startsWith('vf:') || nodeId === '__virtual__') {
+      const vfId = fileId.startsWith('vf:') ? fileId.slice(3) : fileId;
+      const result = await driveApi.renameVirtualFolder(vfId, newName);
+      // Update UI di semua tempat
+      setDriveFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId || f.id === vfId
+            ? { ...f, name: newName }
+            : f
+        )
+      );
+      if (result.failed > 0) {
+        toast(`Renamed di ${result.renamed} drive, ${result.failed} gagal`);
+      } else if (result.renamed === 0) {
+        toast('Renamed (belum ada folder fisik)');
+      } else {
+        toast(`Renamed di ${result.renamed} drive`);
+      }
+      return;
+    }
+
+    // File biasa
     const updated = await driveApi.renameFile(fileId, nodeId, newName);
     setDriveFiles((prev) => prev.map((f) => f.id === fileId && f.nodeId === nodeId ? { ...f, name: updated.name } : f));
     toast('File renamed');
   }, [toast]);
-
   const trashDriveFile = useCallback(async (fileId: string, nodeId: string) => {
+    // Kalau virtual folder
+    if (fileId.startsWith('vf:') || nodeId === '__virtual__') {
+      const vfId = fileId.startsWith('vf:') ? fileId.slice(3) : fileId;
+      const result = await driveApi.deleteVirtualFolder(vfId);
+      setDriveFiles((prev) => prev.filter((f) => f.id !== fileId && f.id !== vfId));
+      if (result.failed > 0) {
+        toast(`Dihapus di ${result.trashed} drive, ${result.failed} gagal`);
+      } else {
+        toast(`Folder dipindah ke Trash di ${result.trashed} drive`);
+      }
+      return;
+    }
+
+    // File biasa
     await driveApi.trashFile(fileId, nodeId);
     setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('Moved to trash');

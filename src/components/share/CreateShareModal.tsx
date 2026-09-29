@@ -3,15 +3,7 @@ import { useApp } from '@/context/AppContext';
 import { buildShareUrl, type ShareRole, type ShareKind, type CreateShareItem } from '@/utils/shareApi';
 import type { DriveFileItem } from '@/types';
 import {
-  Eye,
-  MessageCircle,
-  Pencil,
-  Folder,
-  FileText,
-  Globe,
-  Copy,
-  Check,
-  X,
+  Eye, MessageCircle, Pencil, Folder, FileText, Globe, Copy, Check, X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -33,17 +25,14 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
   const [name, setName] = useState('');
   const [role, setRole] = useState<ShareRole>('viewer');
   const [password, setPassword] = useState('');
+  const [customSlug, setCustomSlug] = useState('');
   const [expiresInDays, setExpiresInDays] = useState<number>(7);
   const [maxDownloads, setMaxDownloads] = useState<number>(0);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ token: string; kind: ShareKind } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const allItems: DriveFileItem[] = items && items.length > 0
-    ? items
-    : item
-      ? [item]
-      : [];
+  const allItems: DriveFileItem[] = items && items.length > 0 ? items : item ? [item] : [];
 
   useEffect(() => {
     if (!open) {
@@ -51,6 +40,7 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
       setName('');
       setRole('viewer');
       setPassword('');
+      setCustomSlug('');
       setExpiresInDays(7);
       setMaxDownloads(0);
       setBusy(false);
@@ -64,6 +54,8 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
   const uniqueNodes = new Set(allItems.map((i) => i.nodeId));
   const isMixedDrive = uniqueNodes.size > 1;
   const firstItem = allItems[0];
+  const isFolderKind = isBulk || firstItem.isFolder;
+  const pathPrefix = isFolderKind ? 'g' : 's';
 
   const defaultName = isBulk ? `Share ${allItems.length} items` : firstItem.name;
 
@@ -91,10 +83,14 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
         name: name.trim() || defaultName,
         kind, nodeId, folderId, fileId, items: shareItems, role,
         password: password.trim() || undefined,
+        customSlug: customSlug.trim() || undefined,
         expiresInDays: expiresInDays > 0 ? expiresInDays : undefined,
         maxDownloads: maxDownloads > 0 ? maxDownloads : undefined,
       });
-      setResult({ token: res.share.token, kind });
+      setResult({
+        token: res.share.custom_slug || res.share.token,
+        kind,
+      });
       toast('Share link created');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Failed to create');
@@ -207,6 +203,26 @@ export function CreateShareModal({ open, onClose, item, items }: CreateShareModa
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6 }}>Password (opsional)</label>
               <input className="setting-input" type="password" placeholder="Kosongkan untuk tanpa password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6 }}>Custom URL (opsional)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, fontFamily: 'ui-monospace,monospace' }}>
+                  /{pathPrefix}/
+                </span>
+                <input
+                  className="setting-input"
+                  placeholder="foto-liburan-2024"
+                  value={customSlug}
+                  onChange={(e) => setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                  maxLength={60}
+                  style={{ flex: 1 }}
+                />
+              </div>
+              <small style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                Huruf kecil, angka, tanda hubung. Min. 3 karakter. Kosongkan untuk URL random.
+              </small>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>

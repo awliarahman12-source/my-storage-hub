@@ -711,6 +711,183 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // POST /drive-upload/folders/:id/rename-virtual — rename di SEMUA drive fisik
+    const renameVirtualMatch = path.match(/^\/folders\/([^/]+)\/rename-virtual$/);
+    if (renameVirtualMatch && req.method === "POST") {
+      const virtualFolderId = renameVirtualMatch[1];
+      const body = await req.json();
+      const newName = body.newName?.trim();
+      if (!newName) throw new Error("newName required");
+
+      // Ambil semua mapping
+      const { data: mappings } = await supabase
+        .from("folder_mappings")
+        .select("storage_node_id, google_folder_id")
+        .eq("virtual_folder_id", virtualFolderId);
+
+      if (!mappings || mappings.length === 0) {
+        // Tidak ada mapping fisik → cukup update virtual name
+        await supabase.from("virtual_folders").update({ name: newName }).eq("id", virtualFolderId);
+        return new Response(JSON.stringify({ success: true, renamed: 0 }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      let ok = 0;
+      let fail = 0;
+      const errors: string[] = [];
+
+      for (const m of mappings) {
+        try {
+          const node = await getStorageNode(supabase, m.storage_node_id);
+          const token = await getValidAccessToken(node);
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${m.google_folder_id}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newName }),
+          });
+          if (res.ok) ok++;
+          else {
+            fail++;
+            errors.push(`${node.email}: HTTP ${res.status}`);
+          }
+        } catch (err) {
+          fail++;
+          errors.push(err instanceof Error ? err.message : "unknown");
+        }
+      }
+
+      // Update virtual folder name (walaupun ada yang fail, biar konsisten di UI)
+      await supabase.from("virtual_folders").update({ name: newName }).eq("id", virtualFolderId);
+
+      return new Response(JSON.stringify({
+        success: fail === 0,
+        renamed: ok,
+        failed: fail,
+        errors: errors.slice(0, 5),
+      }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-upload/folders/:id/delete-virtual — trash folder di SEMUA drive fisik
+    const deleteVirtualMatch = path.match(/^\/folders\/([^/]+)\/delete-virtual$/);
+    if (deleteVirtualMatch && req.method === "POST") {
+      const virtualFolderId = deleteVirtualMatch[1];
+
+      const { data: mappings } = await supabase
+        .from("folder_mappings")
+        .select("storage_node_id, google_folder_id")
+        .eq("virtual_folder_id", virtualFolderId);
+
+      let ok = 0;
+      let fail = 0;
+      const errors: string[] = [];
+
+      if (mappings && mappings.length > 0) {
+        for (const m of mappings) {
+          try {
+            const node = await getStorageNode(supabase, m.storage_node_id);
+            const token = await getValidAccessToken(node);
+            const res = await fetch(`https://www.googleapis.com/drive/v3/files/${m.google_folder_id}`, {
+              method: "PATCH",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ trashed: true }),
+            });
+            if (res.ok) ok++;
+            else { fail++; errors.push(`${node.email}: HTTP ${res.status}`); }
+          } catch (err) {
+            fail++;
+            errors.push(err instanceof Error ? err.message : "unknown");
+          }
+        }
+      }
+
+      // Hapus virtual folder (CASCADE akan hapus semua mappings)
+      await supabase.from("virtual_folders").delete().eq("id", virtualFolderId);
+
+      return new Response(JSON.stringify({
+        success: fail === 0,
+        trashed: ok,
+        failed: fail,
+        errors: errors.slice(0, 5),
+      }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
+    // POST /drive-upload/folders/register-existing — register folder fisik yang sudah ada
+    if (path === "/folders/register-existing" && req.method === "POST") {
+      const body = await req.json();
+      const { nodeId, googleFolderId, folderName, parentVirtualId, parentGoogleId } = body;
+      if (!nodeId || !googleFolderId || !folderName) {
+        throw new Error("nodeId, googleFolderId, folderName required");
+      }
+
+      // Cek dulu apakah folder fisik ini sudah pernah di-mapping
+      const { data: existingMapping } = await supabase
+        .from("folder_mappings")
+        .select("virtual_folder_id")
+        .eq("storage_node_id", nodeId)
+        .eq("google_folder_id", googleFolderId)
+        .maybeSingle();
+
+      if (existingMapping) {
+        // Sudah ada — balikin virtual folder yang ada
+        return new Response(JSON.stringify({
+          virtualFolderId: existingMapping.virtual_folder_id,
+          created: false,
+        }), {
+          headers: { ...ch, "Content-Type": "application/json" },
+        });
+      }
+
+      // Bikin virtual folder baru
+      const { data: vFolder, error: vErr } = await supabase
+        .from("virtual_folders")
+        .insert({
+          name: folderName,
+          parent_id: parentVirtualId || ROOT_VIRTUAL_FOLDER_ID,
+        })
+        .select("id")
+        .single();
+      if (vErr || !vFolder) throw new Error("Failed to create virtual folder");
+
+      // Simpan mapping
+      await supabase.from("folder_mappings").insert({
+        virtual_folder_id: vFolder.id,
+        storage_node_id: nodeId,
+        google_folder_id: googleFolderId,
+      });
+
+      // Lazy migration: parent chain — kalau parent juga folder fisik & belum punya mapping, register rekursif
+      if (parentGoogleId && parentGoogleId !== "root" && parentVirtualId === undefined) {
+        try {
+          const node = await getStorageNode(supabase, nodeId);
+          const token = await getValidAccessToken(node);
+          const parentMetaRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${parentGoogleId}?fields=id,name,parents`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (parentMetaRes.ok) {
+            const parentMeta = await parentMetaRes.json();
+            // Update virtual folder parent
+            await supabase.from("virtual_folders").update({
+              parent_id: ROOT_VIRTUAL_FOLDER_ID,
+            }).eq("id", vFolder.id);
+            // (Recursive registration bisa ditambah nanti — sekarang cukup 1 level)
+          }
+        } catch { /* best-effort */ }
+      }
+
+      return new Response(JSON.stringify({
+        virtualFolderId: vFolder.id,
+        created: true,
+      }), {
+        headers: { ...ch, "Content-Type": "application/json" },
+      });
+    }
+
     // POST /drive-upload/folders/:id/ensure-mapping
     const ensureMatch = path.match(/^\/folders\/([^/]+)\/ensure-mapping$/);
     if (ensureMatch && req.method === "POST") {
