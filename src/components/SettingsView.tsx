@@ -24,17 +24,22 @@ import {
   AlertTriangle,
   BarChart3,
   Sun,
+  Power,
+  PowerOff,
+  CircleDot,
+  Circle,
   Moon,
   RefreshCw,
   Copy,
   X,
 } from 'lucide-react';
 
-type ExtendedTab = SettingsTab | 'api-keys' | 'webhooks' | 'analytics' | 'encryption' | 'shares';
+type ExtendedTab = SettingsTab | 'api-keys' | 'webhooks' | 'analytics' | 'encryption' | 'shares' | 'drive-settings';
 
 const tabs: { id: ExtendedTab; icon: LucideIcon; label: string }[] = [
   { id: 'general', icon: Settings, label: 'General' },
   { id: 'storage', icon: HardDrive, label: 'Storage & Routing' },
+  { id: 'drive-settings', icon: HardDrive, label: 'Drive Settings' },
   { id: 'shares', icon: Link2, label: 'Share Links' },
   { id: 'security', icon: Shield, label: 'Security' },
   { id: 'api-keys', icon: KeyRound, label: 'API Keys' },
@@ -460,6 +465,185 @@ export function SettingsView() {
             </div>
           </section>
         )}
+
+        {active === 'drive-settings' && (
+          <section className="setting-panel active">
+            <div className="setting-header">
+              <div>
+                <h2>Drive Settings</h2>
+                <p>Kelola setiap Google Drive: aktif/nonaktif, prioritas, dan refresh.</p>
+              </div>
+              <button className="btn" onClick={() => void refreshStorageNodes()}>
+                <RefreshCw size={14} /> Refresh All
+              </button>
+            </div>
+
+            {storageNodes.length === 0 ? (
+              <div className="setting-card">
+                <div className="empty-key">
+                  <strong>Belum ada Drive terhubung</strong>
+                  <span>Tambahkan Google Drive dari Dashboard untuk mulai.</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {storageNodes.map((node) => {
+                  const enabled = node.enabled !== false;
+                  const pct = node.cap > 0 ? Math.round((node.used / node.cap) * 100) : 0;
+                  return (
+                    <div
+                      key={node.id}
+                      className="setting-card"
+                      style={{
+                        opacity: enabled ? 1 : 0.55,
+                        transition: 'opacity 0.2s',
+                      }}
+                    >
+                      {/* Header: avatar + email + status */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                        {node.avatar ? (
+                          <img
+                            src={node.avatar}
+                            alt=""
+                            style={{ width: 42, height: 42, borderRadius: 12, objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 42, height: 42, borderRadius: 12,
+                              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                              display: 'grid', placeItems: 'center',
+                              color: '#fff', fontWeight: 700, fontSize: 16,
+                            }}
+                          >
+                            {(node.displayName || node.email || 'G').charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {node.displayName || node.email}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#7b8495', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {node.email}
+                          </div>
+                        </div>
+                        <span
+                          className={'drive-status-badge ' + node.status}
+                          style={{ flexShrink: 0 }}
+                        >
+                          <span className="drive-status-dot" />
+                          {enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+
+                      {/* Storage info */}
+                      {node.quotaAvailable && node.cap > 0 ? (
+                        <>
+                          <div className="drive-cap" style={{ fontSize: 12 }}>
+                            <span>{node.used.toFixed(1)} GB used</span>
+                            <span>{node.cap.toFixed(1)} GB</span>
+                          </div>
+                          <div className="bar" style={{ marginTop: 6, marginBottom: 6 }}>
+                            <i style={{ width: pct + '%' }} />
+                          </div>
+                          <div style={{ fontSize: 11, color: '#7b8495', marginBottom: 12 }}>
+                            {(node.cap - node.used).toFixed(1)} GB free · Priority {node.priority}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 11, color: '#7b8495', marginBottom: 12 }}>
+                          Quota unavailable · Priority {node.priority}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                        {/* Toggle Enable/Disable */}
+                        <button
+                          className={'btn' + (enabled ? '' : ' primary')}
+                          style={{ fontSize: 12, padding: '6px 12px' }}
+                          onClick={() => void toggleNodeEnabled(node.id, !enabled)}
+                        >
+                          {enabled ? (
+                            <><PowerOff size={14} /> Disable</>
+                          ) : (
+                            <><Power size={14} /> Enable</>
+                          )}
+                        </button>
+
+                        {/* Priority input */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <label style={{ fontSize: 11, color: '#7b8495' }}>Priority:</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            defaultValue={node.priority}
+                            onBlur={(e) => {
+                              const p = parseInt(e.target.value, 10);
+                              if (!isNaN(p) && p > 0 && p !== node.priority) {
+                                void setNodePriority(node.id, p);
+                              }
+                            }}
+                            style={{
+                              width: 60,
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: '1px solid var(--line)',
+                              background: 'var(--soft)',
+                              color: 'var(--text)',
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+
+                        {/* Refresh */}
+                        <button
+                          className="btn"
+                          style={{ fontSize: 12, padding: '6px 12px' }}
+                          onClick={() => void refreshStorageNode(node.id)}
+                        >
+                          <RefreshCw size={14} /> Refresh
+                        </button>
+
+                        {/* Disconnect (danger) */}
+                        <button
+                          className="btn danger"
+                          style={{ fontSize: 12, padding: '6px 12px', marginLeft: 'auto' }}
+                          onClick={() => {
+                            if (confirm(`Disconnect ${node.email}? Ini akan menghapus akses dari akun ini. File di Google Drive kamu tidak akan terhapus.`)) {
+                              void disconnectStorageNode(node.id);
+                            }
+                          }}
+                        >
+                          <X size={14} /> Disconnect
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Info cara kerja Disable vs Disconnect */}
+            <div className="setting-card" style={{ marginTop: 16, background: 'rgba(99, 102, 241, 0.08)', borderColor: 'rgba(99, 102, 241, 0.25)' }}>
+              <strong style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <HardDrive size={14} /> Bedanya Disable vs Disconnect
+              </strong>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: '#7b8495', lineHeight: 1.7 }}>
+                <li>
+                  <strong style={{ color: 'var(--text)' }}>Disable</strong> — Drive tetap terhubung, tapi tidak akan dipakai untuk upload/routing baru.
+                  Cocok untuk "pause" sementara tanpa perlu login ulang.
+                </li>
+                <li>
+                  <strong style={{ color: 'var(--text)' }}>Disconnect</strong> — Hapus akses & token. Untuk pakai lagi, harus connect ulang via OAuth.
+                  File di Google Drive kamu tetap aman.
+                </li>
+              </ul>
+            </div>
+          </section>
+        )}
+
 
         {active === 'shares' && (
           <section className="setting-panel active">
