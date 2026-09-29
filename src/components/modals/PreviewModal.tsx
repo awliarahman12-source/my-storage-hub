@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
-import { V3Icon } from '@/components/FileIcon';
 import { ShareModal } from '@/components/modals/ShareModal';
 import {
   getDownloadUrl,
@@ -13,6 +12,33 @@ import {
 } from '@/utils/driveApi';
 import type { FolderEntry, FileVersion } from '@/utils/driveApi';
 import type { DriveFileItem, DashboardFile, ExplorerFile } from '@/types';
+import {
+  ChevronLeft,
+  ChevronRight,
+  X,
+  AlertTriangle,
+  Music,
+  FileText,
+  Folder,
+  Download,
+  Share2,
+  MoreVertical,
+  Pencil,
+  ArrowRight,
+  Copy,
+  Star,
+  StarOff,
+  RotateCw,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  FolderOpen,
+  ChevronRight as ChevronRightSmall,
+} from 'lucide-react';
 
 interface PreviewModalProps {
   open: boolean;
@@ -69,7 +95,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     copyDriveFile,
     moveDriveFile,
     storageNodes,
-    currentView,
   } = useApp();
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -77,16 +102,13 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Image controls
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
   const [fitMode, setFitMode] = useState<'fit' | 'actual'>('fit');
 
-  // Navigation
   const [currentIndex, setCurrentIndex] = useState(-1);
 
-  // Actions
   const [shareFiles, setShareFiles] = useState<DriveFileItem[]>([]);
   const [folderPicker, setFolderPicker] = useState<{ file: DriveFileItem; mode: 'move' | 'copy' } | null>(null);
   const [folderList, setFolderList] = useState<FolderEntry[]>([]);
@@ -95,12 +117,10 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem | null>(null);
   const [showActions, setShowActions] = useState(false);
 
-  // Versioning (Phase 10)
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<FileVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
 
-  // Local file override for navigation
   const [localFile, setLocalFile] = useState<DriveFileItem | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -127,7 +147,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     setFitMode('fit');
   }, [driveFile?.id]);
 
-  // Load preview content (initial)
   useEffect(() => {
     if (!open || !driveFile) return;
     if (driveFile.isFolder) return;
@@ -183,7 +202,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     }
   }, [currentIndex, navList]);
 
-  // Keyboard navigation
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -373,8 +391,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
     setTrashConfirm(null);
   };
 
-  // ============ Versioning (Phase 10) ============
-
   const showVersions = async () => {
     if (!edf) return;
     setVersionsOpen(true);
@@ -401,7 +417,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
 
   const toggleFullscreen = () => setFullscreen((f) => !f);
   const zoomIn = () => { setZoom((z) => Math.min(z + 0.25, 5)); setFitMode('actual'); };
-  const zoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.1));
+  const zoomOut = () => { setZoom((z) => Math.max(z - 0.25, 0.1)); };
   const rotate = () => setRotation((r) => (r + 90) % 360);
   const resetView = () => { setZoom(1); setRotation(0); setFitMode('fit'); };
   const toggleFit = () => {
@@ -436,7 +452,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
           onClick={(e) => e.stopPropagation()}
           style={fullscreen ? { width: '100vw', height: '100vh', borderRadius: 0, maxWidth: '100vw', maxHeight: '100vh' } : undefined}
         >
-          {/* Top bar */}
           <div className="preview-top">
             <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
               <b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ef.name}</b>
@@ -455,21 +470,20 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
                     disabled={!canPrev}
                     title="Previous (Left arrow)"
                     style={!canPrev ? { opacity: 0.3, cursor: 'default' } : undefined}
-                  >{'\u2039'}</button>
+                  ><ChevronLeft size={18} /></button>
                   <button
                     className="preview-nav-btn"
                     onClick={navigateNext}
                     disabled={!canNext}
                     title="Next (Right arrow)"
                     style={!canNext ? { opacity: 0.3, cursor: 'default' } : undefined}
-                  >{'\u203A'}</button>
+                  ><ChevronRight size={18} /></button>
                 </>
               )}
-              <button className="close-btn" onClick={onClose}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={onClose}><X size={18} /></button>
             </div>
           </div>
 
-          {/* Stage */}
           <div className="preview-stage" ref={stageRef} style={fullscreen ? { padding: 0 } : undefined}>
             {loading && (
               <div style={{ color: '#9da7b8', textAlign: 'center', padding: 40 }}>
@@ -480,12 +494,11 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
 
             {loadError && !loading && (
               <div style={{ color: '#9da7b8', textAlign: 'center' }}>
-                <div style={{ fontSize: 40 }}>{'\u26A0'}</div>
+                <AlertTriangle size={40} style={{ margin: '0 auto' }} />
                 <p>{loadError}</p>
               </div>
             )}
 
-            {/* Image */}
             {edf && (edf.type === 'img' || isImageMime(edf.mimeType) || isHeic(edf.mimeType)) && previewUrl && !loading && (
               <div style={{ textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                 <img
@@ -505,7 +518,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               </div>
             )}
 
-            {/* Video */}
             {edf && (edf.type === 'video' || isVideoMime(edf.mimeType)) && previewUrl && !loading && (
               <video
                 src={previewUrl}
@@ -515,15 +527,13 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               />
             )}
 
-            {/* Audio */}
             {edf && (edf.type === 'audio' || edf.mimeType.startsWith('audio/')) && previewUrl && !loading && (
               <div style={{ textAlign: 'center', padding: 40, width: '100%' }}>
-                <div style={{ fontSize: 60, marginBottom: 16 }}>{'\u266B'}</div>
+                <Music size={60} style={{ color: '#a5b4fc', margin: '0 auto 16px' }} />
                 <audio src={previewUrl} controls style={{ width: '100%', maxWidth: 400 }} onError={() => { setLoadError('Failed to load audio.'); setPreviewUrl(null); }} />
               </div>
             )}
 
-            {/* PDF */}
             {edf && (edf.type === 'pdf' || edf.mimeType === 'application/pdf') && previewUrl && !loading && (
               <iframe
                 src={previewUrl}
@@ -533,7 +543,6 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               />
             )}
 
-            {/* Text */}
             {edf && textContent !== null && !loading && (
               <pre style={{
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -546,103 +555,98 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
               </pre>
             )}
 
-            {/* Unsupported */}
             {edf && !loading && !loadError && !previewUrl && textContent === null && !edf.isFolder && (
               <div style={{ color: '#9da7b8', textAlign: 'center', padding: 30 }}>
-                <div style={{ fontSize: 50 }}>{'\u{1F4C4}'}</div>
+                <FileText size={50} style={{ margin: '0 auto' }} />
                 <p style={{ fontSize: 15, margin: '12px 0 6px' }}>Preview not available for this file type</p>
                 <div style={{ fontSize: 12, marginTop: 8, color: '#7b8495' }}>
                   Type: {edf.mimeType} {'\u00B7'} Size: {edf.sizeLabel} {'\u00B7'} Storage: {edf.drive}
                 </div>
                 <button className="xbtn primary" style={{ marginTop: 14, fontSize: 12, padding: '8px 16px' }} onClick={handleDownload}>
-                  {'\u2193'} Download to view
+                  <Download size={14} /> Download to view
                 </button>
               </div>
             )}
 
-            {/* Folder */}
             {edf && edf.isFolder && (
               <div style={{ color: '#9da7b8', textAlign: 'center' }}>
-                <div style={{ fontSize: 50 }}>{'\u{1F4C1}'}</div>
+                <Folder size={50} style={{ margin: '0 auto' }} />
                 <p style={{ fontSize: 15, marginTop: 12 }}>This is a folder.</p>
               </div>
             )}
 
-            {/* Non-drive fallback */}
             {!edf && (
               <div style={{ color: '#9da7b8', textAlign: 'center' }}>
-                <div style={{ fontSize: 40 }}>{'\u{1F4C4}'}</div>
+                <FileText size={40} style={{ margin: '0 auto' }} />
                 <p>Preview not available for this file.</p>
               </div>
             )}
           </div>
 
-          {/* Image controls */}
           {edf && (edf.type === 'img' || isImageMime(edf.mimeType)) && previewUrl && !loading && !loadError && (
             <div className="preview-controls">
-              <button className="preview-ctrl-btn" onClick={zoomOut} title="Zoom out (-)">{'\u2212'}</button>
+              <button className="preview-ctrl-btn" onClick={zoomOut} title="Zoom out (-)"><ZoomOut size={16} /></button>
               <span className="preview-zoom-label">{Math.round(zoom * 100)}%</span>
-              <button className="preview-ctrl-btn" onClick={zoomIn} title="Zoom in (+)">{'\uFF0B'}</button>
-              <button className="preview-ctrl-btn" onClick={rotate} title="Rotate (R)">{'\u21BB'}</button>
+              <button className="preview-ctrl-btn" onClick={zoomIn} title="Zoom in (+)"><ZoomIn size={16} /></button>
+              <button className="preview-ctrl-btn" onClick={rotate} title="Rotate (R)"><RotateCw size={16} /></button>
               <button className="preview-ctrl-btn" onClick={toggleFit} title={fitMode === 'fit' ? 'Actual size' : 'Fit to screen'}>
                 {fitMode === 'fit' ? '1:1' : 'Fit'}
               </button>
-              <button className="preview-ctrl-btn" onClick={resetView} title="Reset (0)">{'\u21BA'}</button>
-              <button className="preview-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">{fullscreen ? '\u29C9' : '\u26F6'}</button>
+              <button className="preview-ctrl-btn" onClick={resetView} title="Reset (0)"><RotateCcw size={16} /></button>
+              <button className="preview-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">
+                {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
             </div>
           )}
 
-          {/* Video/PDF fullscreen */}
           {edf && (edf.type === 'video' || isVideoMime(edf.mimeType) || edf.type === 'pdf' || edf.mimeType === 'application/pdf') && previewUrl && !loading && !loadError && !fullscreen && (
             <div className="preview-controls">
-              <button className="preview-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">{'\u26F6'}</button>
+              <button className="preview-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen"><Maximize2 size={16} /></button>
             </div>
           )}
 
-          {/* Footer with actions */}
           <div className="preview-foot">
             <span>{typeLabel}{edf ? ' \u00B7 ' + edf.mimeType : ''}</span>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="preview-action-btn" onClick={handleDownload} disabled={!edf} title="Download">
-                {'\u2193'} <span className="preview-action-label">Download</span>
+                <Download size={14} /> <span className="preview-action-label">Download</span>
               </button>
               <button className="preview-action-btn" onClick={() => edf && setShareFiles([edf])} disabled={!edf} title="Share">
-                {'\u2197'} <span className="preview-action-label">Share</span>
+                <Share2 size={14} /> <span className="preview-action-label">Share</span>
               </button>
               <button className="preview-action-btn" onClick={() => setShowActions((s) => !s)} disabled={!edf} title="More actions">
-                {'\u22EE'} <span className="preview-action-label">More</span>
+                <MoreVertical size={14} /> <span className="preview-action-label">More</span>
               </button>
             </div>
           </div>
 
-          {/* Expanded actions */}
           {showActions && edf && (
             <div className="preview-actions-popup" onClick={(e) => e.stopPropagation()}>
-              <button onClick={handleRename}>{'\u270E'} Rename</button>
-              <button onClick={() => handleMoveOrCopy('move')}>{'\u2192'} Move</button>
-              <button onClick={() => handleMoveOrCopy('copy')}>{'\u29C9'} Copy</button>
-              <button onClick={handleStar}>{edf.starred ? '\u2605 Remove Star' : '\u2606 Add Star'}</button>
-              <button onClick={() => void showVersions()}>{'\u21BB'} Versions</button>
-              <button className="danger" onClick={() => setTrashConfirm(edf)}>{'\u232B'} Delete</button>
+              <button onClick={handleRename}><Pencil size={14} /> Rename</button>
+              <button onClick={() => handleMoveOrCopy('move')}><ArrowRight size={14} /> Move</button>
+              <button onClick={() => handleMoveOrCopy('copy')}><Copy size={14} /> Copy</button>
+              <button onClick={handleStar}>
+                {edf.starred ? <><StarOff size={14} /> Remove Star</> : <><Star size={14} /> Add Star</>}
+              </button>
+              <button onClick={() => void showVersions()}><RefreshCw size={14} /> Versions</button>
+              <button className="danger" onClick={() => setTrashConfirm(edf)}><Trash2 size={14} /> Delete</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Share Modal */}
       <ShareModal
         files={shareFiles}
         open={shareFiles.length > 0}
         onClose={() => setShareFiles([])}
       />
 
-      {/* Version History Modal (Phase 10) */}
       {versionsOpen && edf && (
         <div className="modal-wrap open" onClick={() => setVersionsOpen(false)} style={{ zIndex: 320 }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: '100%' }}>
-            <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+            <div className="modal-head">
               <strong>Version History — {edf.name}</strong>
-              <button className="close-btn" onClick={() => setVersionsOpen(false)}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={() => setVersionsOpen(false)}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', maxHeight: 400, overflowY: 'auto' }}>
               {loadingVersions ? (
@@ -652,7 +656,7 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
                 </div>
               ) : versions.length === 0 ? (
                 <div style={{ textAlign: 'center', color: '#9da7b8', padding: 30, fontSize: 12 }}>
-                  <div style={{ fontSize: 40, marginBottom: 8 }}>{'\u21BB'}</div>
+                  <RefreshCw size={40} style={{ margin: '0 auto 8px' }} />
                   <strong style={{ display: 'block', color: '#4b5565', marginBottom: 4 }}>No previous versions</strong>
                   <span>Versions are created when you overwrite or modify a file.</span>
                 </div>
@@ -712,13 +716,12 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
         </div>
       )}
 
-      {/* Folder Picker */}
       {folderPicker && (
         <div className="modal-wrap open" onClick={() => setFolderPicker(null)} style={{ zIndex: 310 }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
-              <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={() => setFolderPicker(null)}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -741,19 +744,19 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
                   <>
                     <button
                       className="xbtn"
-                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
                       onClick={() => handleFolderPick('root', selectedDestNode)}
                     >
-                      {'\u25B9'} My Storage (root)
+                      <FolderOpen size={14} /> My Storage (root)
                     </button>
                     {folderList.filter((f) => f.nodeId === selectedDestNode).map((f) => (
                       <button
                         key={f.id}
                         className="xbtn"
-                        style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                        style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
                         onClick={() => handleFolderPick(f.id, f.nodeId)}
                       >
-                        {'\u25B8'} {f.name}
+                        <Folder size={14} /> {f.name}
                       </button>
                     ))}
                     {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
@@ -767,13 +770,12 @@ export function PreviewModal({ open, onClose, file, fileList }: PreviewModalProp
         </div>
       )}
 
-      {/* Trash confirm */}
       {trashConfirm && (
         <div className="modal-wrap open" onClick={() => setTrashConfirm(null)} style={{ zIndex: 310 }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <strong>Move to Trash?</strong>
-              <button className="close-btn" onClick={() => setTrashConfirm(null)}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={() => setTrashConfirm(null)}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               <p style={{ margin: '0 0 8px' }}>Move <strong>{trashConfirm.name}</strong> to trash?</p>

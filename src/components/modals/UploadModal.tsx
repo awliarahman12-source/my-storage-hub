@@ -1,6 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import type { UploadSession, StorageNode } from '@/types';
+import {
+  Upload,
+  HardDrive,
+  Recycle,
+  AlertTriangle,
+  X,
+} from 'lucide-react';
 
 interface UploadModalProps {
   open: boolean;
@@ -39,7 +46,6 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const [duplicatePrompt, setDuplicatePrompt] = useState<{ filename: string; drives: string } | null>(null);
   const [pendingFiles, setPendingFiles] = useState<FileList | File[] | null>(null);
 
-  // Phase 10: Deduplication prompt
   const [dedupPrompt, setDedupPrompt] = useState<{ files: File[]; match: DedupMatch } | null>(null);
   const [checkingDedup, setCheckingDedup] = useState(false);
 
@@ -69,7 +75,6 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const handleUpload = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
 
-    // Warn for very large files
     const MAX_SAFE_SIZE = 100 * 1024 * 1024;
     const tooLarge: string[] = [];
     for (const f of Array.from(files)) {
@@ -82,7 +87,6 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
       if (!confirm(msg)) return;
     }
 
-    // Phase 10: Deduplication check (first file only, to avoid long waits)
     setCheckingDedup(true);
     try {
       for (const file of Array.from(files)) {
@@ -92,15 +96,12 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
             setDedupPrompt({ files: Array.from(files), match: dedup.match as DedupMatch });
             return;
           }
-        } catch {
-          // If check fails, proceed
-        }
+        } catch { /* proceed */ }
       }
     } finally {
       setCheckingDedup(false);
     }
 
-    // Check for duplicates by name
     const duplicates: string[] = [];
     for (const file of Array.from(files)) {
       try {
@@ -109,9 +110,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           const driveNames = check.nodes.map((n) => n.drive).join(', ');
           duplicates.push(`${file.name} (on ${driveNames})`);
         }
-      } catch {
-        // If check fails, proceed with upload
-      }
+      } catch { /* proceed */ }
     }
 
     if (duplicates.length > 0) {
@@ -158,7 +157,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     setDedupPrompt(null);
   };
 
-  const activeSessions = uploadSessions.filter((s) => s.status === 'queued' || s.status === 'uploading' || s.status === 'retrying');
+  const uploadSessionsList = uploadSessions;
   const completedSessions = uploadSessions.filter((s) => s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled');
 
   const statusLabel = (status: string) => {
@@ -193,7 +192,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
 
         {!hasUsableDrives ? (
           <div className="pool-empty" style={{ padding: '30px 20px' }}>
-            <div className="pool-icon">◉</div>
+            <div className="pool-icon"><HardDrive size={30} /></div>
             <strong>No connected drive with space</strong>
             <p>Add a storage node to your pool before uploading files.</p>
           </div>
@@ -225,7 +224,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               onDrop={(e) => { e.preventDefault(); setDragging(false); void handleUpload(e.dataTransfer.files); }}
               style={{ cursor: uploading ? 'wait' : 'pointer', opacity: uploading ? 0.6 : 1 }}
             >
-              <div className="upload-cloud">↑</div>
+              <div className="upload-cloud"><Upload size={28} /></div>
               <strong>{uploading ? 'Uploading...' : checkingDedup ? 'Checking...' : 'Drag & drop files here'}</strong>
               <span>or click to select · JPG, PNG, PDF, ZIP, video, and more</span>
               <input
@@ -239,7 +238,6 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </>
         )}
 
-        {/* Phase 10: Deduplication prompt */}
         {dedupPrompt && (
           <div style={{
             marginTop: 12, padding: 16, borderRadius: 12,
@@ -249,8 +247,8 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               <div style={{
                 width: 36, height: 36, borderRadius: 10,
                 background: '#0ea5e9', color: '#fff',
-                display: 'grid', placeItems: 'center', fontSize: 18, flexShrink: 0,
-              }}>♻</div>
+                display: 'grid', placeItems: 'center', flexShrink: 0,
+              }}><Recycle size={18} /></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <strong style={{ fontSize: 13, display: 'block', color: '#075985' }}>Duplicate content detected</strong>
                 <p style={{ fontSize: 12, color: '#0369a1', margin: '4px 0 0' }}>
@@ -289,13 +287,14 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </div>
         )}
 
-        {/* Duplicate filename prompt */}
         {duplicatePrompt && (
           <div style={{
             marginTop: 12, padding: 14, borderRadius: 10,
             background: '#fff8e1', border: '1px solid #f0c040',
           }}>
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>⚠ Duplicate file name detected</strong>
+            <strong style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <AlertTriangle size={14} /> Duplicate file name detected
+            </strong>
             <p style={{ fontSize: 12, color: '#7b8495', margin: '0 0 10px' }}>
               {duplicatePrompt.filename}
             </p>
@@ -313,11 +312,10 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
           </div>
         )}
 
-        {/* Upload Queue */}
-        {uploadSessions.length > 0 && (
+        {uploadSessionsList.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <strong style={{ fontSize: 13 }}>Upload Queue ({uploadSessions.length})</strong>
+              <strong style={{ fontSize: 13 }}>Upload Queue ({uploadSessionsList.length})</strong>
               {completedSessions.length > 0 && (
                 <button
                   className="xbtn"
@@ -327,7 +325,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               )}
             </div>
             <div style={{ maxHeight: 280, overflowY: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
-              {uploadSessions.map((session) => (
+              {uploadSessionsList.map((session) => (
                 <UploadQueueItem
                   key={session.id}
                   session={session}
@@ -415,7 +413,9 @@ function UploadQueueItem({
           <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onCancel}>Cancel</button>
         )}
         {(isCompleted || isCancelled || isFailed) && (
-          <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onClear}>×</button>
+          <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={onClear} aria-label="Clear">
+            <X size={12} />
+          </button>
         )}
       </div>
     </div>

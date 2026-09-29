@@ -2,6 +2,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
 import { searchDb, type DbSearchResult } from '@/utils/dbSearch';
 import type { DriveFileItem, DashboardFile } from '@/types';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Search,
+  Folder,
+  Image,
+  Film,
+  FileText,
+  Music,
+  FileArchive,
+  File,
+  CornerDownLeft,
+} from 'lucide-react';
 
 interface GlobalSearchModalProps {
   open: boolean;
@@ -110,9 +122,8 @@ export function GlobalSearchModal({ open, onClose, onPreview }: GlobalSearchModa
           overflow: 'hidden',
         }}
       >
-        {/* Search input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 18, color: '#8b94a5' }}>{'\u2315'}</span>
+          <Search size={18} style={{ color: '#8b94a5', flexShrink: 0 }} />
           <input
             ref={inputRef}
             type="text"
@@ -140,7 +151,6 @@ export function GlobalSearchModal({ open, onClose, onPreview }: GlobalSearchModa
           }}>ESC</kbd>
         </div>
 
-        {/* Results */}
         <div style={{ flex: 1, overflowY: 'auto', maxHeight: 480 }}>
           {loading && (
             <div style={{ textAlign: 'center', padding: 30, color: '#9da7b8', fontSize: 13 }}>
@@ -165,52 +175,58 @@ export function GlobalSearchModal({ open, onClose, onPreview }: GlobalSearchModa
               </div>
             </div>
           )}
-          {results.map((r, idx) => (
-            <div
-              key={`${r.nodeId}-${r.id}`}
-              onClick={() => handleSelect(r)}
-              onMouseEnter={() => setSelected(idx)}
-              style={{
-                padding: '12px 20px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                cursor: 'pointer',
-                background: idx === selected ? 'var(--hover, #f0f1ff)' : 'transparent',
-                borderBottom: '1px solid var(--line, #f0f2f6)',
-              }}
-            >
-              <div style={{
-                width: 34,
-                height: 34,
-                borderRadius: 9,
-                background: typeBg(r.mimeType),
-                display: 'grid',
-                placeItems: 'center',
-                fontSize: 12,
-                fontWeight: 700,
-                flexShrink: 0,
-              }}>
-                {typeIcon(r.mimeType)}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {highlightMatch(r.name, query)}
+          {results.map((r, idx) => {
+            const TIcon = typeLucideIcon(r.mimeType);
+            return (
+              <div
+                key={`${r.nodeId}-${r.id}`}
+                onClick={() => handleSelect(r)}
+                onMouseEnter={() => setSelected(idx)}
+                style={{
+                  padding: '12px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  cursor: 'pointer',
+                  background: idx === selected ? 'var(--hover, #f0f1ff)' : 'transparent',
+                  borderBottom: '1px solid var(--line, #f0f2f6)',
+                }}
+              >
+                <div style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
+                  background: typeBg(r.mimeType),
+                  color: typeColor(r.mimeType),
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                }}>
+                  <TIcon size={17} />
                 </div>
-                <div style={{ fontSize: 11, color: '#7b8495', marginTop: 2 }}>
-                  {r.drive} {'\u00B7'} {formatSize(r.size)}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {highlightMatch(r.name, query)}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#7b8495', marginTop: 2 }}>
+                    {r.drive} {'\u00B7'} {formatSize(r.size)}
+                  </div>
                 </div>
+                {idx === selected && (
+                  <kbd style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                    background: 'var(--soft)', color: '#7b8495',
+                    border: '1px solid var(--line)',
+                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                  }}>
+                    <CornerDownLeft size={10} /> Enter
+                  </kbd>
+                )}
               </div>
-              {idx === selected && (
-                <kbd style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--soft)', color: '#7b8495', border: '1px solid var(--line)' }}>
-                  Enter
-                </kbd>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Footer */}
         <div style={{
           padding: '10px 20px',
           borderTop: '1px solid var(--line)',
@@ -252,14 +268,23 @@ function typeBg(mime: string): string {
   return '#f1f3f7';
 }
 
-function typeIcon(mime: string): string {
-  if (mime === 'application/vnd.google-apps.folder') return '\u25B0';
-  if (mime.startsWith('image/')) return '\u{1F5BC}';
-  if (mime.startsWith('video/')) return '\u25B6';
-  if (mime === 'application/pdf') return 'PDF';
-  if (mime.startsWith('audio/')) return '\u266B';
-  if (mime.includes('zip') || mime.includes('compressed')) return 'ZIP';
-  return '\u{1F4C4}';
+function typeColor(mime: string): string {
+  if (mime.startsWith('image/')) return '#0891b2';
+  if (mime.startsWith('video/')) return '#7c3aed';
+  if (mime === 'application/pdf') return '#dc2626';
+  if (mime.startsWith('audio/')) return '#16a34a';
+  if (mime.includes('zip') || mime.includes('compressed')) return '#d97706';
+  return '#64748b';
+}
+
+function typeLucideIcon(mime: string): LucideIcon {
+  if (mime === 'application/vnd.google-apps.folder') return Folder;
+  if (mime.startsWith('image/')) return Image;
+  if (mime.startsWith('video/')) return Film;
+  if (mime === 'application/pdf') return FileText;
+  if (mime.startsWith('audio/')) return Music;
+  if (mime.includes('zip') || mime.includes('compressed')) return FileArchive;
+  return File;
 }
 
 function formatSize(bytes: number): string {
