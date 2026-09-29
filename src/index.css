@@ -3737,3 +3737,23 @@ svg {
   color: #94a3b8 !important;
   background: rgba(15, 23, 42, 0.6) !important;
 }
+
+/* Virtual folder badge */
+.file-card:has(.file-meta:contains("Virtual"))::after {
+  content: 'VF';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.dark-theme .file-card:has(.file-meta:contains("Virtual"))::after {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}

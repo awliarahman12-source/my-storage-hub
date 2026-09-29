@@ -292,6 +292,53 @@ export function useAppState(): AppContextValue {
         return;
       }
 
+      // ROOT view: merge virtual folders
+      if (!currentVirtualFolderId && currentFolderId === 'root' && (currentView === 'files' || currentView === 'dashboard')) {
+        const [result, tree] = await Promise.all([
+          driveApi.fetchFiles(buildFetchOpts()),
+          driveApi.fetchVirtualFolderTree().catch(() => [] as any[]),
+        ]);
+
+        const ROOT_VF = '00000000-0000-0000-0000-000000000001';
+        const rootVirtuals = (tree as any[]).filter((v) => v.parent_id === ROOT_VF || v.parent_id === null);
+
+        // Nama folder fisik yang sudah ada (biar tidak duplikat)
+        const physicalFolders = new Set(
+          result.files.filter((f) => f.isFolder).map((f) => f.name.toLowerCase())
+        );
+
+        // Virtual folder yang belum ada fisiknya → tambahkan sebagai item
+        const virtualItems = rootVirtuals
+          .filter((v) => !physicalFolders.has(v.name.toLowerCase()))
+          .map((v) => ({
+            id: 'vf:' + v.id,
+            nodeId: '__virtual__',
+            name: v.name,
+            type: 'folder' as const,
+            mimeType: 'application/vnd.google-apps.folder',
+            size: 0,
+            sizeLabel: '—',
+            modified: '—',
+            modifiedRaw: null,
+            createdRaw: v.created_at || null,
+            drive: 'Virtual',
+            driveEmail: '',
+            starred: false,
+            trashed: false,
+            shared: false,
+            thumbnail: null,
+            webViewLink: null,
+            webContentLink: null,
+            isFolder: true,
+            parentGoogleId: null,
+          }));
+
+        setDriveFiles([...virtualItems, ...result.files]);
+        setHasMoreFiles(result.hasMore);
+        pageTokensRef.current = result.pageTokens;
+        return;
+      }
+
       const result = await driveApi.fetchFiles(buildFetchOpts());
       setDriveFiles(result.files);
       setHasMoreFiles(result.hasMore);
@@ -303,7 +350,7 @@ export function useAppState(): AppContextValue {
     } finally {
       setLoadingFiles(false);
     }
-  }, [buildFetchOpts, currentVirtualFolderId, currentView]);
+  }, [buildFetchOpts, currentVirtualFolderId, currentView, currentFolderId]);
 
   const loadMoreFiles = useCallback(async () => {
     if (loadingMoreFiles || !hasMoreFiles) return;
@@ -351,8 +398,30 @@ export function useAppState(): AppContextValue {
 
   // FEDERATED: navigateToFolder terima virtualFolderId optional
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
+    // Kalau id berformat 'vf:uuid' → ini virtual folder
+    if (folderId.startsWith('vf:')) {
+      const vfId = folderId.slice(3);
+      setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
+      setCurrentFolderName(folderName);
+      setCurrentVirtualFolderId(vfId);
+      void (async () => {
+        try {
+          const mappings = await driveApi.fetchVirtualFolderMappings(vfId);
+          if (mappings.length > 0) {
+            // Pakai mapping pertama sebagai google folder ID acuan
+            setCurrentFolderId(mappings[0].google_folder_id);
+          } else {
+            // Belum ada mapping fisik → buka folder baru nanti saat upload
+            setCurrentFolderId('root');
+          }
+        } catch {
+          setCurrentFolderId('root');
+        }
+      })();
+      return;
+    }
+
     setCurrentFolderId(folderId);
-    // Coba cari virtual folder yang punya mapping ke google folder ID ini
     void (async () => {
       try {
         const tree = await driveApi.fetchVirtualFolderTree();
