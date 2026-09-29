@@ -28,25 +28,13 @@ import {
   File as FileIconLucide,
   Download,
   MoreVertical,
-  Pencil,
   ArrowRight,
-  Copy,
-  Star,
-  StarOff,
-  RotateCw,
-  Trash2,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  Maximize2,
-  Minimize2,
-  X,
-  AlertTriangle,
-  Mail,
   Lock,
   MessageCircle,
   Send,
   Inbox,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -203,6 +191,9 @@ function ShareTile({
     }
   };
 
+  const folderPreviews = file.isFolder ? (file.previewThumbs || []) : [];
+  const hasFolderPreview = folderPreviews.length > 0;
+
   return (
     <button
       className={`share-tile ${isSelected ? 'selected' : ''}`}
@@ -213,7 +204,22 @@ function ShareTile({
       }}
     >
       <div className="share-tile-thumb">
-        {thumbUrl && !failed ? (
+        {hasFolderPreview ? (
+          <div className="share-folder-preview">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="share-folder-preview-cell">
+                {folderPreviews[i] ? (
+                  <img
+                    src={folderPreviews[i].thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : thumbUrl && !failed ? (
           <>
             {!loaded && <div className="share-skeleton" />}
             <img
@@ -263,6 +269,22 @@ export function ShareList({
   onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
 }) {
   const renderIcon = (f: ShareFile) => {
+    // Folder dengan preview thumbnails → tampil grid mini
+    if (f.isFolder && f.previewThumbs && f.previewThumbs.length > 0) {
+      return (
+        <div className="share-folder-preview-list">
+          {f.previewThumbs.slice(0, 4).map((t, i) => (
+            <img
+              key={i}
+              src={t.thumbnailUrl}
+              alt=""
+              loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          ))}
+        </div>
+      );
+    }
     if (f.thumbnailUrl) return <img src={f.thumbnailUrl} alt="" loading="lazy" />;
     switch (f.previewKind) {
       case 'folder': return <Folder size={20} />;

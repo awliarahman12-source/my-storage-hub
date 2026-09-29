@@ -161,6 +161,8 @@ export interface ShareFile {
   thumbnailUrl: string | null;
   streamUrl: string | null;
   downloadUrl: string | null;
+  previewThumbs?: { id: string; thumbnailUrl: string }[] | null;
+  previewThumbs?: { id: string; thumbnailUrl: string }[] | null;
   comments: number;
 }
 
