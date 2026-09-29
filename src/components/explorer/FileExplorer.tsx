@@ -136,6 +136,14 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     return () => observer.disconnect();
   }, [hasMoreFiles, loadingMoreFiles, loadMoreFiles, searchResults]);
 
+    // Close context menu when clicking outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [contextMenu]);
+  
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

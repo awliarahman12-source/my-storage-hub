@@ -435,6 +435,36 @@ export function useAppState(): AppContextValue {
 
   // FEDERATED: navigateToFolder terima virtualFolderId optional
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
+    // Pindah ke view 'files' kalau dari view lain (Folders, Recent, dll)
+    if (currentView !== 'files' && currentView !== 'dashboard') {
+      setView('files');
+    }
+
+    // Kalau id berformat 'vf:uuid' → ini virtual folder
+    if (folderId.startsWith('vf:')) {
+      const vfId = folderId.slice(3);
+      setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
+      setCurrentFolderName(folderName);
+      setCurrentVirtualFolderId(vfId);
+      void (async () => {
+        try {
+          const mappings = await driveApi.fetchVirtualFolderMappings(vfId);
+          if (mappings.length > 0) {
+            setCurrentFolderId(mappings[0].google_folder_id);
+          } else {
+            setCurrentFolderId('root');
+          }
+        } catch {
+          setCurrentFolderId('root');
+        }
+      })();
+      return;
+    }
+
+    setCurrentFolderId(folderId);
+    setCurrentFolderName(folderName);
+    setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
+    
     // Kalau id berformat 'vf:uuid' → ini virtual folder
     if (folderId.startsWith('vf:')) {
       const vfId = folderId.slice(3);
