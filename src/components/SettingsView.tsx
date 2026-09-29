@@ -96,6 +96,8 @@ export function SettingsView() {
     storageName, setStorageName, theme, setTheme, toast, resetData,
     routingMode, setRoutingMode, storageNodes,
     notificationsEnabled, enableNotifications,
+    toggleNodeEnabled, setNodePriority, refreshStorageNode,
+    refreshStorageNodes, disconnectStorageNode,
   } = useApp();
 
   const [active, setActive] = useState<ExtendedTab>('general');
