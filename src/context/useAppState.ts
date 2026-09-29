@@ -501,28 +501,6 @@ export function useAppState(): AppContextValue {
     })();
   }, [driveFiles]);
 
-    setCurrentFolderId(folderId);
-    void (async () => {
-      try {
-        const tree = await driveApi.fetchVirtualFolderTree();
-        for (const vf of tree) {
-          try {
-            const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
-            if (mappings.some((m) => m.google_folder_id === folderId)) {
-              setCurrentVirtualFolderId(vf.id);
-              return;
-            }
-          } catch { /* skip */ }
-        }
-        setCurrentVirtualFolderId(null);
-      } catch {
-        setCurrentVirtualFolderId(null);
-      }
-    })();
-    setCurrentFolderName(folderName);
-    setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
-  }, []);
-
   // FEDERATED: navigate pakai virtual folder ID eksplisit (dipanggil dari createVirtualFolder)
   const navigateToVirtualFolder = useCallback((virtualFolderId: string, googleFolderId: string, folderName: string) => {
     setCurrentVirtualFolderId(virtualFolderId);
