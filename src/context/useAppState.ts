@@ -113,7 +113,7 @@ export function useAppState(): AppContextValue {
     setHasMoreFiles(false);
     setFilesError(false);
     setCurrentFolderId('root');
-    setCurrentVirtualFolderId(null); // FEDERATED
+    setCurrentVirtualFolderId(null);
     setCurrentFolderName('My Storage');
     setBreadcrumbs([]);
     setUploadSessions([]);
@@ -150,10 +150,11 @@ export function useAppState(): AppContextValue {
   const [hasMoreFiles, setHasMoreFiles] = useState(false);
   const [filesError, setFilesError] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState('root');
-  const [currentVirtualFolderId, setCurrentVirtualFolderId] = useState<string | null>(null); // FEDERATED
+  const [currentVirtualFolderId, setCurrentVirtualFolderId] = useState<string | null>(null);
   const [currentFolderName, setCurrentFolderName] = useState('My Storage');
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const pageTokensRef = useRef<Record<string, string> | undefined>(undefined);
+  const lastNavigateRef = useRef<{ id: string; time: number } | null>(null);
 
   const [uploadSessions, setUploadSessions] = useState<UploadSession[]>([]);
 
@@ -277,14 +278,12 @@ export function useAppState(): AppContextValue {
     }
   }, [currentView, currentFolderId]);
 
-  // FEDERATED: refreshFiles cek virtualFolderId dulu
   const refreshFiles = useCallback(async () => {
     if (fileLoadAbort.current) fileLoadAbort.current.abort();
     setLoadingFiles(true);
     setFilesError(false);
     pageTokensRef.current = undefined;
     try {
-      // Kalau sedang di virtual folder & bukan view spesial → pakai federated
       if (currentVirtualFolderId && (currentView === 'files' || currentView === 'dashboard')) {
         const files = await driveApi.fetchFederatedFolderFiles(currentVirtualFolderId);
         setDriveFiles(files);
@@ -292,7 +291,6 @@ export function useAppState(): AppContextValue {
         return;
       }
 
-      // ROOT view: merge virtual folders
       if (!currentVirtualFolderId && currentFolderId === 'root' && (currentView === 'files' || currentView === 'dashboard')) {
         const [result, tree] = await Promise.all([
           driveApi.fetchFiles(buildFetchOpts()),
@@ -302,12 +300,10 @@ export function useAppState(): AppContextValue {
         const ROOT_VF = '00000000-0000-0000-0000-000000000001';
         const rootVirtuals = (tree as any[]).filter((v) => v.parent_id === ROOT_VF || v.parent_id === null);
 
-        // Nama folder fisik yang sudah ada (biar tidak duplikat)
         const physicalFolders = new Set(
           result.files.filter((f) => f.isFolder).map((f) => f.name.toLowerCase())
         );
 
-        // Virtual folder yang belum ada fisiknya → tambahkan sebagai item
         const virtualItems = rootVirtuals
           .filter((v) => !physicalFolders.has(v.name.toLowerCase()))
           .map((v) => ({
@@ -340,7 +336,6 @@ export function useAppState(): AppContextValue {
       }
 
       const result = await driveApi.fetchFiles(buildFetchOpts());
-      // Dedup by id+nodeId
       const seen = new Set<string>();
       const deduped = result.files.filter((f) => {
         const k = `${f.id}::${f.nodeId}`;
@@ -389,7 +384,7 @@ export function useAppState(): AppContextValue {
   useEffect(() => {
     if (currentView !== 'files' && currentView !== 'dashboard') {
       setCurrentFolderId('root');
-      setCurrentVirtualFolderId(null); // FEDERATED
+      setCurrentVirtualFolderId(null);
       setCurrentFolderName('My Storage');
       setBreadcrumbs([]);
     }
@@ -408,13 +403,12 @@ export function useAppState(): AppContextValue {
   // LAZY MIGRATION: cek folder existing yang belum punya virtual ID
   useEffect(() => {
     if (currentView !== 'files' && currentView !== 'dashboard') return;
-    if (currentVirtualFolderId) return; // sudah punya
+    if (currentVirtualFolderId) return;
 
     const currentF = driveFiles.find((f) => f.id === currentFolderId && f.isFolder);
     if (!currentF || currentF.id === 'root' || !currentF.nodeId) return;
     if (currentF.nodeId === '__virtual__') return;
 
-    // Cek apakah folder fisik ini sudah punya virtual folder
     void (async () => {
       try {
         const tree = await driveApi.fetchVirtualFolderTree();
@@ -427,7 +421,6 @@ export function useAppState(): AppContextValue {
             }
           } catch { /* skip */ }
         }
-        // Belum ada → register
         const result = await driveApi.registerExistingFolder(
           currentF.nodeId,
           currentFolderId,
@@ -442,17 +435,30 @@ export function useAppState(): AppContextValue {
     })();
   }, [currentFolderId, driveFiles, currentView, currentVirtualFolderId]);
 
-  // FEDERATED: navigateToFolder terima virtualFolderId optional
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
-    // Pindah ke view 'files' kalau dari view lain (Folders, Recent, dll)
+    // GUARD: cegah double navigation dalam 800ms untuk folder yang sama
+    const now = Date.now();
+    if (
+      lastNavigateRef.current &&
+      lastNavigateRef.current.id === folderId &&
+      now - lastNavigateRef.current.time < 800
+    ) {
+      return;
+    }
+    lastNavigateRef.current = { id: folderId, time: now };
+
+    // Pindah ke view 'files' kalau dari view lain
     if (currentView !== 'files' && currentView !== 'dashboard') {
       setView('files');
     }
 
-    // Kalau id berformat 'vf:uuid' → ini virtual folder
+    // Kalau id berformat 'vf:uuid' → virtual folder
     if (folderId.startsWith('vf:')) {
       const vfId = folderId.slice(3);
-      setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
+      setBreadcrumbs((prev) => {
+        if (prev.length > 0 && prev[prev.length - 1].id === folderId) return prev;
+        return [...prev, { id: folderId, name: folderName }];
+      });
       setCurrentFolderName(folderName);
       setCurrentVirtualFolderId(vfId);
       void (async () => {
@@ -472,34 +478,12 @@ export function useAppState(): AppContextValue {
 
     setCurrentFolderId(folderId);
     setCurrentFolderName(folderName);
-    setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
-    
-    // Kalau id berformat 'vf:uuid' → ini virtual folder
-    if (folderId.startsWith('vf:')) {
-      const vfId = folderId.slice(3);
-      setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
-      setCurrentFolderName(folderName);
-      setCurrentVirtualFolderId(vfId);
-      void (async () => {
-        try {
-          const mappings = await driveApi.fetchVirtualFolderMappings(vfId);
-          if (mappings.length > 0) {
-            setCurrentFolderId(mappings[0].google_folder_id);
-          } else {
-            setCurrentFolderId('root');
-          }
-        } catch {
-          setCurrentFolderId('root');
-        }
-      })();
-      return;
-    }
+    setBreadcrumbs((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1].id === folderId) return prev;
+      return [...prev, { id: folderId, name: folderName }];
+    });
 
-    setCurrentFolderId(folderId);
-    setCurrentFolderName(folderName);
-    setBreadcrumbs((prev) => [...prev, { id: folderId, name: folderName }]);
-
-    // LAZY MIGRATION: cari virtual folder yang match dengan google folder ID
+    // LAZY MIGRATION: cari virtual folder yang match
     void (async () => {
       try {
         const tree = await driveApi.fetchVirtualFolderTree();
@@ -507,15 +491,12 @@ export function useAppState(): AppContextValue {
           try {
             const mappings = await driveApi.fetchVirtualFolderMappings(vf.id);
             if (mappings.some((m) => m.google_folder_id === folderId)) {
-              // Sudah punya virtual folder → pakai
               setCurrentVirtualFolderId(vf.id);
               return;
             }
           } catch { /* skip */ }
         }
 
-        // Belum ada virtual folder → LAZY MIGRATE
-        // Cari nodeId dari folder fisik via driveFiles state
         const matchingFile = driveFiles.find((f) => f.id === folderId && f.isFolder);
         if (matchingFile && matchingFile.nodeId) {
           try {
@@ -538,19 +519,31 @@ export function useAppState(): AppContextValue {
         setCurrentVirtualFolderId(null);
       }
     })();
-  }, [driveFiles]);
+  }, [driveFiles, currentView]);
 
-  // FEDERATED: navigate pakai virtual folder ID eksplisit (dipanggil dari createVirtualFolder)
   const navigateToVirtualFolder = useCallback((virtualFolderId: string, googleFolderId: string, folderName: string) => {
+    const now = Date.now();
+    if (
+      lastNavigateRef.current &&
+      lastNavigateRef.current.id === googleFolderId &&
+      now - lastNavigateRef.current.time < 800
+    ) {
+      return;
+    }
+    lastNavigateRef.current = { id: googleFolderId, time: now };
+
     setCurrentVirtualFolderId(virtualFolderId);
     setCurrentFolderId(googleFolderId);
     setCurrentFolderName(folderName);
-    setBreadcrumbs((prev) => [...prev, { id: googleFolderId, name: folderName }]);
+    setBreadcrumbs((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1].id === googleFolderId) return prev;
+      return [...prev, { id: googleFolderId, name: folderName }];
+    });
   }, []);
 
   const navigateToRoot = useCallback(() => {
     setCurrentFolderId('root');
-    setCurrentVirtualFolderId(null); // FEDERATED
+    setCurrentVirtualFolderId(null);
     setCurrentFolderName('My Storage');
     setBreadcrumbs([]);
   }, []);
@@ -562,7 +555,6 @@ export function useAppState(): AppContextValue {
       setCurrentFolderId(item.id);
       setCurrentFolderName(item.name);
       setBreadcrumbs((prev) => prev.slice(0, index + 1));
-      // Virtual ID tidak bisa di-restore dari breadcrumb, akan di-resolve otomatis
       void (async () => {
         try {
           const tree = await driveApi.fetchVirtualFolderTree();
@@ -591,11 +583,9 @@ export function useAppState(): AppContextValue {
   // ============ File Operations ============
 
   const renameDriveFile = useCallback(async (fileId: string, nodeId: string, newName: string) => {
-    // Kalau virtual folder (id format 'vf:uuid' atau nodeId '__virtual__')
     if (fileId.startsWith('vf:') || nodeId === '__virtual__') {
       const vfId = fileId.startsWith('vf:') ? fileId.slice(3) : fileId;
       const result = await driveApi.renameVirtualFolder(vfId, newName);
-      // Update UI di semua tempat
       setDriveFiles((prev) =>
         prev.map((f) =>
           f.id === fileId || f.id === vfId
@@ -613,13 +603,12 @@ export function useAppState(): AppContextValue {
       return;
     }
 
-    // File biasa
     const updated = await driveApi.renameFile(fileId, nodeId, newName);
     setDriveFiles((prev) => prev.map((f) => f.id === fileId && f.nodeId === nodeId ? { ...f, name: updated.name } : f));
     toast('File renamed');
   }, [toast]);
+
   const trashDriveFile = useCallback(async (fileId: string, nodeId: string) => {
-    // Kalau virtual folder
     if (fileId.startsWith('vf:') || nodeId === '__virtual__') {
       const vfId = fileId.startsWith('vf:') ? fileId.slice(3) : fileId;
       const result = await driveApi.deleteVirtualFolder(vfId);
@@ -632,7 +621,6 @@ export function useAppState(): AppContextValue {
       return;
     }
 
-    // File biasa
     await driveApi.trashFile(fileId, nodeId);
     setDriveFiles((prev) => prev.filter((f) => !(f.id === fileId && f.nodeId === nodeId)));
     toast('Moved to trash');
@@ -671,21 +659,12 @@ export function useAppState(): AppContextValue {
     toast('File deleted permanently');
   }, [toast]);
 
-  // FEDERATED: createDriveFolder bikin virtual folder + mapping
   const createDriveFolder = useCallback(async (nodeId: string, name: string, parentId?: string) => {
     try {
-      // 1. Bikin virtual folder di DB (parent = root kalau tidak ada)
       const virtualFolder = await driveApi.createVirtualFolder(name, parentId ? undefined : undefined);
-
-      // 2. Bikin folder fisik di node yang dipilih
       const physical = await driveApi.createFolder(nodeId, name, parentId);
-
-      // 3. Bikin mapping virtual → physical
-      // Endpoint ensure-mapping akan bikin folder di node target (kalau belum ada), jadi tinggal panggil
       await driveApi.ensureFolderMapping(virtualFolder.id, nodeId);
-
       toast('Folder created');
-      // Navigasi ke folder baru (dengan virtual ID)
       navigateToVirtualFolder(virtualFolder.id, physical.id, name);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to create folder');
@@ -765,7 +744,6 @@ export function useAppState(): AppContextValue {
     return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, ' ').trim();
   };
 
-  // FEDERATED: uploadFiles ensure-mapping sebelum upload
   const uploadFiles = useCallback(async (files: FileList | File[], targetNodeId?: string) => {
     if (!files || (files instanceof FileList ? files.length === 0 : (files as File[]).length === 0)) return;
     const connectedNodes = storageNodes.filter((n) => n.status === 'connected');
@@ -787,7 +765,6 @@ export function useAppState(): AppContextValue {
           nodeId = route.nodeId;
         }
 
-        // FEDERATED: kalau di virtual folder, ensure-mapping dulu supaya folder fisik ada di drive target
         let effectiveParentId: string | undefined = currentFolderId !== 'root' ? currentFolderId : undefined;
 
         if (currentVirtualFolderId) {
@@ -996,8 +973,8 @@ export function useAppState(): AppContextValue {
     setNodePriority, toggleNodeEnabled,
     driveFiles, loadingFiles, loadingMoreFiles, hasMoreFiles, filesError,
     currentFolderId, currentFolderName, breadcrumbs,
-    currentVirtualFolderId, // FEDERATED
-    navigateToFolder, navigateToVirtualFolder, navigateToRoot, navigateToBreadcrumb, // FEDERATED: navigateToVirtualFolder
+    currentVirtualFolderId,
+    navigateToFolder, navigateToVirtualFolder, navigateToRoot, navigateToBreadcrumb,
     refreshFiles, loadMoreFiles, searchDriveFiles,
     renameDriveFile, trashDriveFile, untrashDriveFile, starDriveFile,
     copyDriveFile, moveDriveFile, deleteDriveFile, createDriveFolder, shareDriveFile,
