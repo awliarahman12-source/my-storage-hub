@@ -340,7 +340,15 @@ export function useAppState(): AppContextValue {
       }
 
       const result = await driveApi.fetchFiles(buildFetchOpts());
-      setDriveFiles(result.files);
+      // Dedup by id+nodeId
+      const seen = new Set<string>();
+      const deduped = result.files.filter((f) => {
+        const k = `${f.id}::${f.nodeId}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      setDriveFiles(deduped);
       setHasMoreFiles(result.hasMore);
       pageTokensRef.current = result.pageTokens;
     } catch {
@@ -361,10 +369,11 @@ export function useAppState(): AppContextValue {
       const firstToken = Object.values(tokens)[0];
       const result = await driveApi.fetchFiles({ ...buildFetchOpts(), pageToken: firstToken });
       setDriveFiles((prev) => {
-        const seen = new Set(prev.map((f) => f.id));
+        const seen = new Set(prev.map((f) => `${f.id}::${f.nodeId}`));
         const merged = [...prev];
         for (const f of result.files) {
-          if (!seen.has(f.id)) { merged.push(f); seen.add(f.id); }
+          const k = `${f.id}::${f.nodeId}`;
+          if (!seen.has(k)) { merged.push(f); seen.add(k); }
         }
         return merged;
       });

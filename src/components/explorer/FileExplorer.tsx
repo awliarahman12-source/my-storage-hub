@@ -102,9 +102,20 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const [createShareItems, setCreateShareItems] = useState<DriveFileItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const lastNavRef = useRef<{ id: string; time: number } | null>(null);
 
-  const sorted = useMemo(() => {
-    return [...(searchResults || driveFiles)].sort((a, b) => {
+  // Dedup file yang punya id+nodeId sama (biar tidak multi-select)
+  const uniqueSorted = useMemo(() => {
+    const seen = new Set<string>();
+    const out: DriveFileItem[] = [];
+    for (const f of sorted) {
+      const key = `${f.id}::${f.nodeId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(f);
+    }
+    return out;
+  }, [sorted]);
       if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
       switch (sort) {
         case 'name-desc': return String(b.name).localeCompare(String(a.name));
@@ -143,7 +154,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     window.addEventListener('click', close);
     return () => window.removeEventListener('click', close);
   }, [contextMenu]);
-  
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -155,7 +166,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'a' && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault();
-        setSelected(new Set(sorted.map((f) => f.id)));
+        setSelected(new Set(uniqueSorted.map((f) => f.id)));
       }
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault();
@@ -163,17 +174,17 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       }
       if (e.key === 'Delete' && selected.size > 0 && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault();
-        const targets = sorted.filter((x) => selected.has(x.id));
+        const targets = uniqueSorted.filter((x) => selected.has(x.id));
         if (targets.length > 0) setTrashConfirm(targets);
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [sorted, selected]);
-
+  }, [uniqueSorted, selected]);
+  
   const select = (id: string, e: React.MouseEvent) => {
     if (e.shiftKey && selected.size) {
-      const ids = sorted.map((f) => f.id);
+      const ids = uniqueSorted.map((f) => f.id);
       const lastIdx = ids.indexOf([...selected].pop()!);
       const currIdx = ids.indexOf(id);
       const a = Math.min(lastIdx, currIdx), b = Math.max(lastIdx, currIdx);
@@ -191,12 +202,19 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
 
   const open = (file: DriveFileItem) => {
     if (file.isFolder) {
+      // Guard: cegah double navigation dalam 600ms
+      const now = Date.now();
+      if (lastNavRef.current && lastNavRef.current.id === file.id && now - lastNavRef.current.time < 600) {
+        return;
+      }
+      lastNavRef.current = { id: file.id, time: now };
+
       navigateToFolder(file.id, file.name);
       setSelected(new Set());
       setSearchResults(null);
       setSearchQuery('');
     } else {
-      onPreview(file, sorted);
+      onPreview(file, uniqueSorted);
     }
   };
 
@@ -365,8 +383,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   };
 
   const handleTrashSelected = () => {
-    const targets = driveFiles.filter((x) => selected.has(x.id));
-    if (targets.length > 0) setTrashConfirm(targets);
+    const targets = uniqueSorted.filter((x) => selected.has(x.id));
   };
 
   const showDetails = (file: DriveFileItem) => {
@@ -384,7 +401,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     const file = contextMenu.file;
     setContextMenu(null);
 
-    const targets = sorted.filter((x) => selected.has(x.id));
+    const targets = uniqueSorted.filter((x) => selected.has(x.id));
     const bulk = targets.length > 0 ? targets : [file];
     const isBulk = bulk.length > 1;
 
@@ -471,15 +488,15 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
 
       <div className="explorer-toolbar">
         <div className="group">
-          {sorted.length > 0 && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: '#7b8495', padding: '0 8px' }}>
-              <input
-                type="checkbox"
-                checked={selected.size === sorted.length}
-                onChange={() => {
-                  if (selected.size === sorted.length) setSelected(new Set());
-                  else setSelected(new Set(sorted.map((f) => f.id)));
-                }}
+        {uniqueSorted.length > 0 && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: '#7b8495', padding: '0 8px' }}>
+            <input
+              type="checkbox"
+              checked={selected.size === uniqueSorted.length}
+              onChange={() => {
+                if (selected.size === uniqueSorted.length) setSelected(new Set());
+                else setSelected(new Set(uniqueSorted.map((f) => f.id)));
+              }}
                 style={{ cursor: 'pointer' }}
               />
               {selected.size > 0 && selected.size < sorted.length ? 'Partial' : selected.size === sorted.length ? 'All' : 'None'}
@@ -499,27 +516,27 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           <div className="group">
             <span style={{ alignSelf: 'center', fontSize: 12, color: '#7b8495', marginRight: 4 }}>{selected.size} selected</span>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               targets.forEach((f) => handleDownload(f));
             }}><Download size={14} /> Download</button>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'move');
             }}><FolderInput size={14} /> Move</button>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'copy');
             }}><Copy size={14} /> Copy</button>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               handleCreateShareLink(targets);
             }}><Link2 size={14} /> Share Link</button>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               setShareFiles(targets);
             }}><Users size={14} /> GDrive</button>
             <button className="xbtn" onClick={() => {
-              const targets = driveFiles.filter((x) => selected.has(x.id));
+              const targets = uniqueSorted.filter((x) => selected.has(x.id));
               targets.forEach((f) => void handleStar(f));
             }}><Star size={14} /> Star</button>
             <button className="xbtn danger" onClick={handleTrashSelected}><Trash2 size={14} /> Delete</button>
@@ -586,7 +603,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           <br />
           <button className="xbtn" style={{ marginTop: 10 }} onClick={handleRefresh}><RefreshCw size={14} /> Retry</button>
         </div>
-      ) : sorted.length === 0 ? (
+      ) : uniqueSorted.length === 0 ? (
         <div className="upload-drop" style={{ display: 'block' }}>
           {searchQuery ? (
             <>
@@ -608,7 +625,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       ) : view === 'grid' ? (
         <div className="file-grid" data-density={density}>
-          {sorted.map((f) => (
+          {uniqueSorted.map((f) => (
             <div
               key={f.id}
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
@@ -645,19 +662,19 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <input
                 type="checkbox"
-                checked={selected.size === sorted.length && sorted.length > 0}
+                checked={selected.size === uniqueSorted.length && uniqueSorted.length > 0}
                 onChange={() => {
-                  if (selected.size === sorted.length) setSelected(new Set());
-                  else setSelected(new Set(sorted.map((f) => f.id)));
+                  if (selected.size === uniqueSorted.length) setSelected(new Set());
+                  else setSelected(new Set(uniqueSorted.map((f) => f.id)));
                 }}
                 style={{ cursor: 'pointer' }}
               />
             </div>
             <div>Name</div><div>Type</div><div>Size</div><div>Modified</div><div>Storage</div><div></div>
           </div>
-          {sorted.map((f) => (
+          {uniqueSorted.map((f) => (
             <div
-              key={f.id}
+              key={`${f.id}::${f.nodeId}`}
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
@@ -703,7 +720,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       )}
 
-      {searchResults === null && sorted.length > 0 && (
+      {searchResults === null && uniqueSorted.length > 0 && (
         <div ref={sentinelRef} style={{ padding: '12px', textAlign: 'center' }}>
           {loadingMoreFiles && <span className="muted" style={{ fontSize: 13 }}>Loading more files...</span>}
           {!loadingMoreFiles && !hasMoreFiles && !loadingFiles && (
