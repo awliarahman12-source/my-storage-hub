@@ -518,15 +518,18 @@ async function fetchFolderPreviewThumbs(
   pw: string | null,
 ): Promise<{ id: string; thumbnailUrl: string }[]> {
   try {
-    const q = `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`;
-    const r = await fetchDriveFiles(node, q, 4, undefined, "name");
-    return (r.files || [])
-      .filter((f: DriveFile) => f.thumbnailLink)
-      .map((f: DriveFile) => ({
-        id: f.id,
-        thumbnailUrl: `/functions/v1/drive-ops/share/${shareToken}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-      }));
-  } catch {
+    // Ambil file apapun yang punya thumbnail (image + video + PDF)
+    const q = `'${folderId}' in parents and trashed = false`;
+    const r = await fetchDriveFiles(node, q, 12, undefined, "name");
+    const withThumb = (r.files || [])
+      .filter((f: DriveFile) => f.thumbnailLink && f.mimeType !== "application/vnd.google-apps.folder")
+      .slice(0, 4);
+    return withThumb.map((f: DriveFile) => ({
+      id: f.id,
+      thumbnailUrl: `/functions/v1/drive-ops/share/${shareToken}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+    }));
+  } catch (err) {
+    console.error("fetchFolderPreviewThumbs failed:", err instanceof Error ? err.message : String(err));
     return [];
   }
 }
