@@ -1,17 +1,13 @@
 import { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { gb } from '@/utils/format';
+import { HardDrive, Plus } from 'lucide-react';
 import type { DriveStatus } from '@/types';
 
 export function DriveGrid() {
   const {
-    storageNodes,
-    loadingNodes,
-    connectGoogleDrive,
-    disconnectStorageNode,
-    routingMode,
-    setRoutingMode,
-    toast,
+    storageNodes, loadingNodes, connectGoogleDrive, disconnectStorageNode,
+    routingMode, setRoutingMode, toast,
   } = useApp();
   const [connecting, setConnecting] = useState(false);
 
@@ -36,7 +32,7 @@ export function DriveGrid() {
           <span>Loading...</span>
         </div>
         <section className="card pool-empty">
-          <div className="pool-icon">{'\u25C9'}</div>
+          <div className="pool-icon"><HardDrive size={30} /></div>
           <h3>Checking connected drives...</h3>
         </section>
       </>
@@ -51,11 +47,11 @@ export function DriveGrid() {
           <span>0 drives connected</span>
         </div>
         <section className="card pool-empty">
-          <div className="pool-icon">{'\u25C9'}</div>
+          <div className="pool-icon"><HardDrive size={30} /></div>
           <h3>No Google Drive connected</h3>
           <p>Connect your Google Drive account to start building your storage pool. Files will be distributed automatically across all connected drives.</p>
           <button className="btn primary" onClick={handleConnect} disabled={connecting}>
-            {connecting ? 'Connecting...' : '\uFF0B Add Google Drive'}
+            {connecting ? 'Connecting...' : <><Plus size={14} /> Add Google Drive</>}
           </button>
         </section>
       </>
@@ -76,7 +72,7 @@ export function DriveGrid() {
           <option value="manual">Manual — Priority order</option>
         </select>
         <button className="btn primary" style={{ marginLeft: 'auto' }} onClick={handleConnect} disabled={connecting}>
-          {connecting ? 'Connecting...' : '\uFF0B Add Google Drive'}
+          {connecting ? 'Connecting...' : <><Plus size={14} /> Add Google Drive</>}
         </button>
       </div>
       <section className="drives">
@@ -108,9 +104,7 @@ export function DriveGrid() {
                     <span>{gb(node.used)} used</span>
                     <span>{gb(node.cap)}</span>
                   </div>
-                  <div className="bar">
-                    <i style={{ width: p + '%' }} />
-                  </div>
+                  <div className="bar"><i style={{ width: p + '%' }} /></div>
                   <div className="drive-foot">
                     <span>{gb(Math.max(0, node.cap - node.used))} free</span>
                     <span className="drive-priority">Priority {node.priority} · Connected {connectedDate}</span>
@@ -122,9 +116,7 @@ export function DriveGrid() {
                     <span>Quota unavailable</span>
                     <span>—</span>
                   </div>
-                  <div className="bar">
-                    <i style={{ width: '0%' }} />
-                  </div>
+                  <div className="bar"><i style={{ width: '0%' }} /></div>
                   <div className="drive-foot">
                     <span>Storage data from Google API</span>
                     <span className="drive-priority">Priority {node.priority} · Connected {connectedDate}</span>
@@ -132,10 +124,7 @@ export function DriveGrid() {
                 </>
               )}
               <div className="drive-actions">
-                <button
-                  className="danger"
-                  onClick={() => handleDisconnect(node.id, node.email)}
-                >
+                <button className="danger" onClick={() => handleDisconnect(node.id, node.email)}>
                   Disconnect
                 </button>
               </div>

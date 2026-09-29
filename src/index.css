@@ -2488,3 +2488,492 @@ select:focus {
     border-radius: 24px 24px 0 0 !important;
   }
 }
+
+/* ============================================================
+   DARK MODE CONTRAST FIX (Liquid Glass + Lucide)
+   ============================================================ */
+
+/* 1. Pastikan icon selalu mewarisi warna text */
+svg {
+  color: inherit;
+}
+
+/* 2. Button & icon button di dark mode */
+.dark-theme .btn,
+.dark-theme .xbtn {
+  color: #e5e7eb !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.dark-theme .btn:hover,
+.dark-theme .xbtn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .btn.primary,
+.dark-theme .xbtn.primary {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+.dark-theme .btn.danger,
+.dark-theme .xbtn.danger {
+  color: #fca5a5 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+/* 3. Sidebar nav */
+.dark-theme .nav button {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .nav button:hover,
+.dark-theme .nav button.active {
+  color: #a5b4fc !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .nav small {
+  color: #64748b !important;
+}
+
+/* 4. Side actions */
+.dark-theme .side-action {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .side-action:hover {
+  color: #a5b4fc !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .side-action.danger {
+  color: #f87171 !important;
+}
+
+/* 5. Top bar & headings */
+.dark-theme .top h1,
+.dark-theme .top p,
+.dark-theme h1,
+.dark-theme h2,
+.dark-theme h3,
+.dark-theme h4,
+.dark-theme strong,
+.dark-theme b {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .muted,
+.dark-theme small {
+  color: #94a3b8 !important;
+}
+
+/* 6. Settings tab */
+.dark-theme .setting-tab {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .setting-tab.active,
+.dark-theme .setting-tab:hover {
+  color: #a5b4fc !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .api-tab {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .api-tab.active,
+.dark-theme .api-tab:hover {
+  color: #a5b4fc !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 7. Sidebar brand & logo */
+.dark-theme .brand {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .settings-menu-title,
+.dark-theme .api-menu-title {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .settings-version,
+.dark-theme .api-menu-note {
+  color: #64748b !important;
+}
+
+.dark-theme .settings-version span,
+.dark-theme .api-menu-note b {
+  color: #94a3b8 !important;
+}
+
+/* 8. Pool mini */
+.dark-theme .pool-mini strong {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .pool-mini span {
+  color: #94a3b8 !important;
+}
+
+/* 9. File explorer toolbar */
+.dark-theme .explorer-toolbar {
+  background: rgba(20, 24, 40, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .explorer-toolbar label {
+  color: #94a3b8 !important;
+}
+
+/* 10. File card & row */
+.dark-theme .file-card {
+  background: rgba(20, 24, 40, 0.55) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .file-card:hover {
+  background: rgba(20, 24, 40, 0.75) !important;
+}
+
+.dark-theme .file-card .file-name {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .file-card .file-meta,
+.dark-theme .file-row .muted {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .file-list {
+  background: rgba(20, 24, 40, 0.55) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .file-row {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .file-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark-theme .file-row.selected {
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+.dark-theme .file-row.header {
+  color: #94a3b8 !important;
+}
+
+/* 11. V3Icon folder/file icon — jaga warna */
+.dark-theme .v3-folder { color: #fbbf24 !important; }
+.dark-theme .v3-image { color: #38bdf8 !important; }
+.dark-theme .v3-video { color: #a78bfa !important; }
+.dark-theme .v3-pdf { color: #f87171 !important; }
+.dark-theme .v3-audio { color: #4ade80 !important; }
+.dark-theme .v3-archive { color: #fb923c !important; }
+.dark-theme .v3-file { color: #94a3b8 !important; }
+
+.dark-theme .v3-icon {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark-theme .v3-pdf,
+.dark-theme .v3-archive {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+/* 12. DashboardFileIcon (kecil) */
+.dark-theme .file-icon {
+  color: #94a3b8 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark-theme .file-icon.pdf {
+  color: #f87171 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+.dark-theme .file-icon.zip {
+  color: #fb923c !important;
+  background: rgba(249, 115, 22, 0.15) !important;
+}
+
+.dark-theme .file-icon.img {
+  color: #38bdf8 !important;
+  background: rgba(14, 165, 233, 0.15) !important;
+}
+
+/* 13. Breadcrumbs */
+.dark-theme .breadcrumbs,
+.dark-theme .breadcrumbs button {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .breadcrumbs button:hover {
+  color: #f1f5f9 !important;
+}
+
+/* 14. Context menu */
+.dark-theme .context-menu button {
+  color: #e5e7eb !important;
+}
+
+.dark-theme .context-menu button:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .context-menu button.danger {
+  color: #f87171 !important;
+}
+
+/* 15. Quick actions */
+.dark-theme .quick button {
+  color: #e5e7eb !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .quick button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.dark-theme .quick b {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .quick span {
+  color: #94a3b8 !important;
+}
+
+/* 16. Cards — title contrast */
+.dark-theme .card h1,
+.dark-theme .card h2,
+.dark-theme .card h3 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .card p,
+.dark-theme .card .sub {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .big {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .eyebrow {
+  color: #94a3b8 !important;
+}
+
+/* 17. Drive card */
+.dark-theme .drive strong {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .drive-meta,
+.dark-theme .drive-foot,
+.dark-theme .drive-priority,
+.dark-theme .drive-cap {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .drive-icon {
+  color: #a5b4fc !important;
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+.dark-theme .drive-actions button {
+  color: #e5e7eb !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 18. Modal header */
+.dark-theme .modal h3 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .modal p,
+.dark-theme .modal .muted {
+  color: #94a3b8 !important;
+}
+
+/* 19. Tabs / sections */
+.dark-theme .section-title h2 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .section-title span {
+  color: #94a3b8 !important;
+}
+
+/* 20. Konfirmasi modal */
+.dark-theme .modal-panel strong,
+.dark-theme .modal-panel b {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .modal-panel p {
+  color: #94a3b8 !important;
+}
+
+/* 21. Login screen */
+.dark-theme .login-card h1 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .login-card p,
+.dark-theme .login-card small {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .login-brand {
+  color: #94a3b8 !important;
+}
+
+/* 22. Search input */
+.dark-theme .search input::placeholder,
+.dark-theme input::placeholder,
+.dark-theme textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* 23. Kbd tag */
+.dark-theme kbd {
+  color: #cbd5e1 !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* 24. Empty state */
+.dark-theme .empty-key {
+  color: #64748b !important;
+}
+
+.dark-theme .empty-key strong {
+  color: #cbd5e1 !important;
+}
+
+/* 25. Pool empty */
+.dark-theme .pool-empty h3 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .pool-empty p {
+  color: #94a3b8 !important;
+}
+
+/* 26. Switch label text */
+.dark-theme .row-setting b,
+.dark-theme .setting-card > label {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .row-setting small,
+.dark-theme .setting-card small {
+  color: #94a3b8 !important;
+}
+
+/* 27. Tool card */
+.dark-theme .tool-card {
+  background: rgba(20, 24, 40, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark-theme .tool-card:hover {
+  background: rgba(20, 24, 40, 0.85) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+.dark-theme .tool-info strong {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .tool-info span {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .tool-icon {
+  color: #a5b4fc !important;
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+/* 28. File name dan detail items */
+.dark-theme .file-name,
+.dark-theme .file-name b,
+.dark-theme .file-name strong {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .detail-item {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .detail-item span:first-child {
+  color: #94a3b8 !important;
+}
+
+/* 29. Force all muted text visible */
+.dark-theme [class*="muted"],
+.dark-theme .muted {
+  color: #94a3b8 !important;
+}
+
+/* 30. Semua SVG Lucide inherit parent color dengan baik */
+.dark-theme button svg,
+.dark-theme button svg * {
+  color: inherit;
+  stroke: currentColor;
+}
+
+/* 31. Settings menu panel di dark */
+.dark-theme .settings-menu,
+.dark-theme .api-menu {
+  background: rgba(20, 24, 40, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 32. Mode switch text */
+.dark-theme .theme-choice {
+  background: rgba(20, 24, 40, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .theme-choice b {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .theme-choice small {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .theme-choice.selected {
+  border-color: rgba(139, 92, 246, 0.5) !important;
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+/* 33. No drives banner */
+.dark-theme .no-drives-banner {
+  background: rgba(251, 191, 36, 0.1) !important;
+  border-color: rgba(251, 191, 36, 0.3) !important;
+  color: #fcd34d !important;
+}
+
+.dark-theme .no-drives-banner b {
+  color: #fbbf24 !important;
+}
+
+.dark-theme .no-drives-banner small {
+  color: #fcd34d !important;
+}

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { DashboardFileIcon } from '@/components/FileIcon';
 import { getDownloadUrl } from '@/utils/driveApi';
+import { Search, Star, StarOff, Download, ChevronDown } from 'lucide-react';
 import type { DriveFileItem, DashboardFile } from '@/types';
 
 interface RecentFilesProps {
@@ -13,7 +14,6 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
   const [query, setQuery] = useState('');
   const hasDrives = storageNodes.filter((n) => n.status === 'connected').length > 0;
 
-  // Show the 10 most recent files (sorted by modified date)
   const recent = [...driveFiles]
     .filter((f) => !f.isFolder && !f.trashed)
     .sort((a, b) => String(b.modifiedRaw || '').localeCompare(String(a.modifiedRaw || '')))
@@ -51,14 +51,14 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
       <section className="card files">
         <div className="toolbar">
           <div className="search">
-            <span>{'\u2315'}</span>
+            <Search size={14} />
             <input
               placeholder="Search files..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <button className="filter" onClick={() => {}}>All files {'\u25BE'}</button>
+          <button className="filter" onClick={() => {}}>All files <ChevronDown size={12} /></button>
         </div>
         <table>
           <thead>
@@ -84,13 +84,10 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
                         <DashboardFileIcon file={f} />
                       )}
                       <div>
-                        <b
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => onPreview(f)}
-                        >
+                        <b style={{ cursor: 'pointer' }} onClick={() => onPreview(f)}>
                           {f.name}
                         </b>
-                        {f.starred && <span style={{ color: '#f59e0b' }}> {'\u2605'}</span>}
+                        {f.starred && <Star size={11} fill="#f59e0b" stroke="none" style={{ display: 'inline', marginLeft: 4 }} />}
                       </div>
                     </div>
                   </td>
@@ -99,8 +96,12 @@ export function RecentFiles({ onPreview }: RecentFilesProps) {
                   <td className="muted">{f.modified}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{'\u2606'}</button>
-                      <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleDownload(f)} title="Download">{'\u2193'}</button>
+                      <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>
+                        {f.starred ? <Star size={12} fill="#f59e0b" stroke="none" /> : <StarOff size={12} />}
+                      </button>
+                      <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleDownload(f)} title="Download">
+                        <Download size={12} />
+                      </button>
                     </div>
                   </td>
                 </tr>

@@ -6,6 +6,27 @@ import type { FolderEntry } from '@/utils/driveApi';
 import { ShareModal } from '@/components/modals/ShareModal';
 import { CreateShareModal } from '@/components/share/CreateShareModal';
 import type { DriveFileItem } from '@/types';
+import {
+  Plus,
+  Upload,
+  RefreshCw,
+  Download,
+  FolderInput,
+  Copy,
+  Link2,
+  Users,
+  Star,
+  Trash2,
+  X,
+  ChevronRight,
+  ChevronLeft,
+  Grid3x3,
+  List,
+  MoreVertical,
+  Folder,
+  Move,
+  Pencil,
+} from 'lucide-react';
 
 type SortMode = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest' | 'size-largest' | 'size-smallest' | 'type';
 
@@ -47,7 +68,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     moveDriveFile,
     createDriveFolder,
     uploadFiles,
-    routingMode,
     searchDriveFiles,
     toast,
   } = useApp();
@@ -206,11 +226,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     let newName = n.trim();
     if (hasExt) {
       const changeExt = confirm('Keep extension "' + ext + '"?\n\nOK = Keep "' + n.trim() + ext + '"\nCancel = Use "' + n.trim() + '" (changes extension)\n\nWarning: Changing the extension does NOT convert the file format.');
-      if (changeExt) {
-        newName = n.trim() + ext;
-      } else {
-        newName = n.trim();
-      }
+      if (changeExt) newName = n.trim() + ext;
+      else newName = n.trim();
     }
     try {
       await renameDriveFile(file.id, file.nodeId, newName);
@@ -284,13 +301,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     }
 
     const verb = mode === 'move' ? 'moved' : 'copied';
-    if (fail === 0) {
-      toast(`${ok} file${ok > 1 ? 's' : ''} ${verb}`);
-    } else if (ok === 0) {
-      toast(`Failed to ${mode} ${fail} file${fail > 1 ? 's' : ''}`);
-    } else {
-      toast(`${ok} ${verb}, ${fail} failed`);
-    }
+    if (fail === 0) toast(`${ok} file${ok > 1 ? 's' : ''} ${verb}`);
+    else if (ok === 0) toast(`Failed to ${mode} ${fail} file${fail > 1 ? 's' : ''}`);
+    else toast(`${ok} ${verb}, ${fail} failed`);
     setSelected(new Set());
   };
 
@@ -327,13 +340,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         fail++;
       }
     }
-    if (fail === 0) {
-      toast(`${ok} file${ok > 1 ? 's' : ''} moved to trash`);
-    } else if (ok === 0) {
-      toast(`Failed to trash ${fail} file${fail > 1 ? 's' : ''}`);
-    } else {
-      toast(`${ok} trashed, ${fail} failed`);
-    }
+    if (fail === 0) toast(`${ok} file${ok > 1 ? 's' : ''} moved to trash`);
+    else if (ok === 0) toast(`Failed to trash ${fail} file${fail > 1 ? 's' : ''}`);
+    else toast(`${ok} trashed, ${fail} failed`);
     setSelected(new Set());
   };
 
@@ -347,12 +356,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     setDetailsOpen(true);
   };
 
-  // ============ CONTEXT MENU ============
-
   const openContextMenu = (file: DriveFileItem, x: number, y: number) => {
-    if (!selected.has(file.id)) {
-      setSelected(new Set([file.id]));
-    }
+    if (!selected.has(file.id)) setSelected(new Set([file.id]));
     setContextMenu({ x, y, file });
   };
 
@@ -369,40 +374,16 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       case 'open': open(file); break;
       case 'rename': handleRename(file); break;
       case 'details': showDetails(file); break;
-
-      case 'download': {
-        bulk.forEach((f) => handleDownload(f));
-        break;
-      }
-      case 'share': {
-        setShareFiles(bulk);
-        break;
-      }
-      case 'share-link': {
-        if (isBulk) {
-          toast(`Membuat 1 share link untuk ${bulk.length} file...`);
-        }
+      case 'download': bulk.forEach((f) => handleDownload(f)); break;
+      case 'share': setShareFiles(bulk); break;
+      case 'share-link':
+        if (isBulk) toast(`Membuat 1 share link untuk ${bulk.length} file...`);
         handleCreateShareLink(bulk);
         break;
-      }
-      case 'move': {
-        void handleMoveOrCopy(bulk, 'move');
-        break;
-      }
-      case 'copy': {
-        void handleMoveOrCopy(bulk, 'copy');
-        break;
-      }
-      case 'star': {
-        for (const f of bulk) {
-          void handleStar(f);
-        }
-        break;
-      }
-      case 'trash': {
-        setTrashConfirm(bulk);
-        break;
-      }
+      case 'move': void handleMoveOrCopy(bulk, 'move'); break;
+      case 'copy': void handleMoveOrCopy(bulk, 'copy'); break;
+      case 'star': for (const f of bulk) void handleStar(f); break;
+      case 'trash': setTrashConfirm(bulk); break;
     }
   };
 
@@ -459,7 +440,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         <button onClick={() => { navigateToRoot(); setSelected(new Set()); setSearchResults(null); setSearchQuery(''); }}>My Storage</button>
         {breadcrumbs.map((x, i) => (
           <span key={x.id}>
-            <span> {'\u203A'} </span>
+            <ChevronRight size={14} style={{ opacity: 0.5 }} />
             <button onClick={() => { navigateToBreadcrumb(i); setSelected(new Set()); setSearchResults(null); setSearchQuery(''); }}>{x.name}</button>
           </span>
         ))}
@@ -481,9 +462,15 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               {selected.size > 0 && selected.size < sorted.length ? 'Partial' : selected.size === sorted.length ? 'All' : 'None'}
             </label>
           )}
-          <button className="xbtn primary" onClick={handleNewFolder}>{'\uFF0B'} New</button>
-          <button className="xbtn" onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }} disabled={uploading}>{uploading ? 'Uploading...' : 'Upload'}</button>
-          <button className="xbtn" onClick={handleRefresh}>{'\u21BB'} Refresh</button>
+          <button className="xbtn primary" onClick={handleNewFolder}>
+            <Plus size={14} /> New
+          </button>
+          <button className="xbtn" onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }} disabled={uploading}>
+            <Upload size={14} /> {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+          <button className="xbtn" onClick={handleRefresh}>
+            <RefreshCw size={14} /> Refresh
+          </button>
         </div>
         {selected.size > 0 && (
           <div className="group">
@@ -491,29 +478,29 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               targets.forEach((f) => handleDownload(f));
-            }}>{'\u2193'} Download</button>
+            }}><Download size={14} /> Download</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'move');
-            }}>Move</button>
+            }}><FolderInput size={14} /> Move</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'copy');
-            }}>Copy</button>
+            }}><Copy size={14} /> Copy</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               handleCreateShareLink(targets);
-            }}>🔗 Share Link</button>
+            }}><Link2 size={14} /> Share Link</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               setShareFiles(targets);
-            }}>👥 GDrive</button>
+            }}><Users size={14} /> GDrive</button>
             <button className="xbtn" onClick={() => {
               const targets = driveFiles.filter((x) => selected.has(x.id));
               targets.forEach((f) => void handleStar(f));
-            }}>Star</button>
-            <button className="xbtn danger" onClick={handleTrashSelected}>Delete</button>
-            <button className="xbtn" onClick={() => setSelected(new Set())}>Clear</button>
+            }}><Star size={14} /> Star</button>
+            <button className="xbtn danger" onClick={handleTrashSelected}><Trash2 size={14} /> Delete</button>
+            <button className="xbtn" onClick={() => setSelected(new Set())}><X size={14} /> Clear</button>
           </div>
         )}
         <div style={{ flex: 1 }} />
@@ -531,8 +518,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           ))}
         </select>
         <div className="view-toggle">
-          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')}>{'\u25A6'}</button>
-          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')}>{'\u2637'}</button>
+          <button className={view === 'grid' ? 'active' : ''} onClick={() => setViewAndSave('grid')} title="Grid view"><Grid3x3 size={14} /></button>
+          <button className={view === 'list' ? 'active' : ''} onClick={() => setViewAndSave('list')} title="List view"><List size={14} /></button>
         </div>
       </div>
 
@@ -564,12 +551,12 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         </div>
       ) : filesError ? (
         <div className="upload-drop" style={{ display: 'block', textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>{'\u26A0'}</div>
+          <AlertTriangle size={28} style={{ margin: '0 auto 8px' }} />
           <strong>Storage connection unavailable</strong>
           <br />
           <span style={{ fontSize: 12 }}>Could not reach Google Drive. Check your connection and try refreshing.</span>
           <br />
-          <button className="xbtn" style={{ marginTop: 10 }} onClick={handleRefresh}>{'\u21BB'} Retry</button>
+          <button className="xbtn" style={{ marginTop: 10 }} onClick={handleRefresh}><RefreshCw size={14} /> Retry</button>
         </div>
       ) : sorted.length === 0 ? (
         <div className="upload-drop" style={{ display: 'block' }}>
@@ -585,7 +572,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           ) : (
             <>
               This folder is empty.<br />
-              <button className="xbtn" style={{ marginTop: 10 }} onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }}>Upload files</button>
+              <button className="xbtn" style={{ marginTop: 10 }} onClick={() => { setShowDrop(true); fileInputRef.current?.click(); }}>
+                <Upload size={14} /> Upload files
+              </button>
             </>
           )}
         </div>
@@ -617,7 +606,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                   <V3Icon file={f} />
                 )}
               </div>
-              <div className="file-name">{f.name}{f.starred ? <span style={{ color: '#f59e0b' }}> ★</span> : null}</div>
+              <div className="file-name">{f.name}{f.starred ? <Star size={12} fill="#f59e0b" stroke="none" style={{ display: 'inline', marginLeft: 4 }} /> : null}</div>
               <div className="file-meta">{f.isFolder ? 'Folder' : f.sizeLabel} · {f.drive}</div>
             </div>
           ))}
@@ -662,20 +651,24 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                   <V3Icon file={f} />
                 )}
               </div>
-              <div><strong>{f.name}</strong>{f.starred ? ' ★' : ''}</div>
+              <div><strong>{f.name}</strong>{f.starred ? <Star size={11} fill="#f59e0b" stroke="none" style={{ display: 'inline', marginLeft: 4 }} /> : null}</div>
               <div className="muted">{f.type}</div>
               <div className="muted">{f.isFolder ? '—' : f.sizeLabel}</div>
               <div className="muted">{f.modified}</div>
               <div className="muted">{f.drive}</div>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-                <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>{f.starred ? '\u2605' : '\u2606'}</button>
+                <button className="xbtn" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => void handleStar(f)} title={f.starred ? 'Unstar' : 'Star'}>
+                  <Star size={12} fill={f.starred ? '#f59e0b' : 'none'} stroke={f.starred ? 'none' : 'currentColor'} />
+                </button>
                 <button
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', fontSize: 16 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b8495', display: 'inline-flex', alignItems: 'center', padding: 4 }}
                   onClick={(e) => {
                     e.stopPropagation();
                     openContextMenu(f, Math.min(e.clientX, window.innerWidth - 240), Math.min(e.clientY, window.innerHeight - 460));
                   }}
-                >{'\u22EE'}</button>
+                >
+                  <MoreVertical size={14} />
+                </button>
               </div>
             </div>
           ))}
@@ -694,7 +687,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       <div className={'details-panel' + (detailsOpen ? ' open' : '')}>
         <div className="details-head">
           <strong>Properties</strong>
-          <button className="xbtn" onClick={() => setDetailsOpen(false)}>{'\u00D7'}</button>
+          <button className="xbtn" onClick={() => setDetailsOpen(false)}><X size={14} /></button>
         </div>
         {detailsFile && (
           <>
@@ -703,15 +696,33 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               <strong style={{ fontSize: 14, wordBreak: 'break-word' }}>{detailsFile.name}</strong>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16, justifyContent: 'center' }}>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { open(detailsFile); }}>Open</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>Download</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleCreateShareLink([detailsFile])}>🔗 Share Link</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleShare(detailsFile)}>Share</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>Rename</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'move'); }}>Move</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'copy'); }}>Copy</button>
-              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleStar(detailsFile)}>{detailsFile.starred ? 'Unstar' : 'Star'}</button>
-              <button className="xbtn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); setTrashConfirm([detailsFile]); }}>Delete</button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { open(detailsFile); }}>
+                Open
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleDownload(detailsFile)}>
+                <Download size={12} /> Download
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleCreateShareLink([detailsFile])}>
+                <Link2 size={12} /> Share Link
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => handleShare(detailsFile)}>
+                <Users size={12} /> Share
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); handleRename(detailsFile); }}>
+                <Pencil size={12} /> Rename
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'move'); }}>
+                <Move size={12} /> Move
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); void handleMoveOrCopy([detailsFile], 'copy'); }}>
+                <Copy size={12} /> Copy
+              </button>
+              <button className="xbtn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleStar(detailsFile)}>
+                <Star size={12} /> {detailsFile.starred ? 'Unstar' : 'Star'}
+              </button>
+              <button className="xbtn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => { setDetailsOpen(false); setTrashConfirm([detailsFile]); }}>
+                <Trash2 size={12} /> Delete
+              </button>
             </div>
             <div style={{ fontSize: 11, color: '#9da7b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>File</div>
             {([
@@ -778,7 +789,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <strong>{folderPicker.mode === 'move' ? 'Move to folder' : 'Copy to folder'}</strong>
-              <button className="close-btn" onClick={() => setFolderPicker(null)}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={() => setFolderPicker(null)}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               <div className="muted" style={{ marginBottom: 12, fontSize: 12 }}>
@@ -803,10 +814,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                   <>
                     <button
                       className="xbtn"
-                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
                       onClick={() => handleFolderPick('root', selectedDestNode)}
                     >
-                      {'\u25B9'} My Storage (root)
+                      <Folder size={14} /> My Storage (root)
                     </button>
                     {folderList
                       .filter((f) => f.nodeId === selectedDestNode)
@@ -814,10 +825,10 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                         <button
                           key={f.id}
                           className="xbtn"
-                          style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)' }}
+                          style={{ width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 0, border: 0, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}
                           onClick={() => handleFolderPick(f.id, f.nodeId)}
                         >
-                          {'\u25B8'} {f.name}
+                          <Folder size={14} /> {f.name}
                         </button>
                       ))}
                     {folderList.filter((f) => f.nodeId === selectedDestNode).length === 0 && (
@@ -836,7 +847,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <strong>Move to Trash?</strong>
-              <button className="close-btn" onClick={() => setTrashConfirm([])}>{'\u00D7'}</button>
+              <button className="close-btn" onClick={() => setTrashConfirm([])}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px' }}>
               {trashConfirm.length === 1 ? (

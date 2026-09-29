@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchPermissions, addPermission, removePermission, fetchShareLink, shareFile, logActivity } from '@/utils/driveApi';
+import { Copy, Check, User, Users, Link2, X } from 'lucide-react';
 import type { DriveFileItem, DrivePermission } from '@/types';
 
 interface ShareModalProps {
@@ -9,11 +10,7 @@ interface ShareModalProps {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
-  organizer: 'Manager',
-  writer: 'Editor',
-  commenter: 'Commenter',
-  reader: 'Viewer',
+  owner: 'Owner', organizer: 'Manager', writer: 'Editor', commenter: 'Commenter', reader: 'Viewer',
 };
 
 export function ShareModal({ files, open, onClose }: ShareModalProps) {
@@ -43,11 +40,7 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
       setPermissions(perms);
       setShareLink(linkData.webViewLink);
       const anyonePerm = perms.find((p) => p.type === 'anyone');
-      if (anyonePerm) {
-        setLinkAccess(anyonePerm.role === 'reader' ? 'viewer' : 'editor');
-      } else {
-        setLinkAccess('private');
-      }
+      setLinkAccess(anyonePerm ? (anyonePerm.role === 'reader' ? 'viewer' : 'editor') : 'private');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load sharing info');
     } finally {
@@ -56,12 +49,8 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
   }, [file, isBulk]);
 
   useEffect(() => {
-    if (open && !isBulk && file) {
-      void loadPermissions();
-    } else if (open && isBulk) {
-      setLinkAccess('private');
-      setError(null);
-    }
+    if (open && !isBulk && file) void loadPermissions();
+    else if (open && isBulk) { setLinkAccess('private'); setError(null); }
   }, [open, file, isBulk, loadPermissions]);
 
   const handleAddPermission = async () => {
@@ -110,8 +99,7 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
     setLinkAccess(access);
     setBulkBusy(true);
     const mapped = access === 'viewer' ? 'public' : access === 'editor' ? 'editor' : 'private';
-    let ok = 0;
-    let fail = 0;
+    let ok = 0, fail = 0;
     for (const f of files) {
       try {
         await shareFile(f.id, f.nodeId, mapped);
@@ -123,13 +111,9 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
       }
     }
     setBulkBusy(false);
-    if (fail === 0) {
-      setError(null);
-    } else if (ok === 0) {
-      setError(`Failed to update all ${fail} file(s)`);
-    } else {
-      setError(`${ok} updated, ${fail} failed`);
-    }
+    if (fail === 0) setError(null);
+    else if (ok === 0) setError(`Failed to update all ${fail} file(s)`);
+    else setError(`${ok} updated, ${fail} failed`);
   };
 
   const handleCopyLink = async () => {
@@ -155,20 +139,12 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
           </p>
 
           {error && (
-            <div style={{ padding: '8px 12px', borderRadius: 8, background: '#fee', color: '#dc2626', fontSize: 12, marginBottom: 12 }}>
-              {error}
-            </div>
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: '#fee', color: '#dc2626', fontSize: 12, marginBottom: 12 }}>{error}</div>
           )}
 
           <div style={{ marginBottom: 16 }}>
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Link access for all files</strong>
-            <select
-              className="setting-input"
-              value={linkAccess}
-              onChange={(e) => void handleBulkLinkAccess(e.target.value)}
-              disabled={bulkBusy}
-              style={{ width: '100%', padding: '8px 12px' }}
-            >
+            <select className="setting-input" value={linkAccess} onChange={(e) => void handleBulkLinkAccess(e.target.value)} disabled={bulkBusy} style={{ width: '100%', padding: '8px 12px' }}>
               <option value="private">Restricted (private)</option>
               <option value="viewer">Anyone with link — Viewer</option>
               <option value="editor">Anyone with link — Editor</option>
@@ -204,67 +180,36 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
         <h3>Share "{file.name}"</h3>
 
         {error && (
-          <div style={{ padding: '8px 12px', borderRadius: 8, background: '#fee', color: '#dc2626', fontSize: 12, marginBottom: 12 }}>
-            {error}
-          </div>
+          <div style={{ padding: '8px 12px', borderRadius: 8, background: '#fee', color: '#dc2626', fontSize: 12, marginBottom: 12 }}>{error}</div>
         )}
 
         <div style={{ marginBottom: 16 }}>
           <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Link access</strong>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select
-              className="setting-input"
-              value={linkAccess}
-              onChange={(e) => void handleLinkAccess(e.target.value)}
-              style={{ flex: 1, padding: '8px 12px' }}
-            >
+            <select className="setting-input" value={linkAccess} onChange={(e) => void handleLinkAccess(e.target.value)} style={{ flex: 1, padding: '8px 12px' }}>
               <option value="private">Restricted (private)</option>
               <option value="viewer">Anyone with link — Viewer</option>
               <option value="editor">Anyone with link — Editor</option>
             </select>
-            <button
-              className="btn"
-              style={{ fontSize: 12, padding: '8px 14px', whiteSpace: 'nowrap' }}
-              onClick={() => void handleCopyLink()}
-              disabled={!shareLink}
-            >
-              {copied ? 'Copied!' : 'Copy Link'}
+            <button className="btn" style={{ fontSize: 12, padding: '8px 14px', whiteSpace: 'nowrap' }} onClick={() => void handleCopyLink()} disabled={!shareLink}>
+              {copied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy Link</>}
             </button>
           </div>
           {shareLink && (
-            <div style={{ fontSize: 11, color: '#7b8495', marginTop: 6, wordBreak: 'break-all' }}>
-              {shareLink}
-            </div>
+            <div style={{ fontSize: 11, color: '#7b8495', marginTop: 6, wordBreak: 'break-all' }}>{shareLink}</div>
           )}
         </div>
 
         <div style={{ marginBottom: 16 }}>
           <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Share with people</strong>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input
-              className="setting-input"
-              type="email"
-              placeholder="user@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ flex: 1, minWidth: 180, padding: '8px 12px' }}
-            />
-            <select
-              className="setting-input"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              style={{ width: 120, padding: '8px 12px' }}
-            >
+            <input className="setting-input" type="email" placeholder="user@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: 1, minWidth: 180, padding: '8px 12px' }} />
+            <select className="setting-input" value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 120, padding: '8px 12px' }}>
               <option value="reader">Viewer</option>
               <option value="commenter">Commenter</option>
               <option value="writer">Editor</option>
             </select>
-            <button
-              className="btn primary"
-              style={{ fontSize: 12, padding: '8px 16px', whiteSpace: 'nowrap' }}
-              onClick={() => void handleAddPermission()}
-              disabled={!email.trim() || loading}
-            >
+            <button className="btn primary" style={{ fontSize: 12, padding: '8px 16px', whiteSpace: 'nowrap' }} onClick={() => void handleAddPermission()} disabled={!email.trim() || loading}>
               Share
             </button>
           </div>
@@ -284,7 +229,7 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
                     <img src={p.photoLink} alt="" style={{ width: 32, height: 32, borderRadius: '50%' }} />
                   ) : (
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#e8eef5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#7b8495' }}>
-                      {(p.displayName || p.emailAddress || '?').charAt(0).toUpperCase()}
+                      <User size={16} />
                     </div>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -297,11 +242,7 @@ export function ShareModal({ files, open, onClose }: ShareModalProps) {
                   </div>
                   <span style={{ fontSize: 11, color: '#7b8495' }}>{ROLE_LABELS[p.role] || p.role}</span>
                   {p.role !== 'owner' && (
-                    <button
-                      className="xbtn"
-                      style={{ fontSize: 10, padding: '2px 8px', color: '#dc2626' }}
-                      onClick={() => setRemoveTarget(p)}
-                    >
+                    <button className="xbtn" style={{ fontSize: 10, padding: '2px 8px', color: '#dc2626' }} onClick={() => setRemoveTarget(p)}>
                       Remove
                     </button>
                   )}

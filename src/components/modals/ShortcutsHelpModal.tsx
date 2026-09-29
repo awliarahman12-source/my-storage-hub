@@ -1,5 +1,6 @@
 import { useApp } from '@/context/AppContext';
 import { SHORTCUT_HELP } from '@/hooks/useKeyboardShortcuts';
+import { X } from 'lucide-react';
 
 export function ShortcutsHelpModal() {
   const { shortcutsHelpOpen, setShortcutsHelpOpen } = useApp();
@@ -8,14 +9,10 @@ export function ShortcutsHelpModal() {
 
   return (
     <div className="modal-wrap open" onClick={() => setShortcutsHelpOpen(false)}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(480px, 100%)' }}
-      >
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(480px, 100%)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0 }}>Keyboard Shortcuts</h3>
-          <button className="btn" onClick={() => setShortcutsHelpOpen(false)}>{'\u00D7'}</button>
+          <button className="btn" onClick={() => setShortcutsHelpOpen(false)}><X size={14} /></button>
         </div>
 
         <div style={{ display: 'grid', gap: 4 }}>
@@ -33,14 +30,9 @@ export function ShortcutsHelpModal() {
             >
               <span style={{ fontSize: 13, color: 'var(--text)' }}>{item.description}</span>
               <kbd style={{
-                fontSize: 11,
-                padding: '4px 10px',
-                borderRadius: 6,
-                background: 'var(--panel, #fff)',
-                border: '1px solid var(--line)',
-                fontFamily: 'ui-monospace,monospace',
-                color: '#5a6a7e',
-                fontWeight: 600,
+                fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                background: 'var(--panel, #fff)', border: '1px solid var(--line)',
+                fontFamily: 'ui-monospace,monospace', color: '#5a6a7e', fontWeight: 600,
               }}>{item.keys}</kbd>
             </div>
           ))}

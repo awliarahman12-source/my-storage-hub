@@ -1,4 +1,5 @@
 import { useApp } from '@/context/AppContext';
+import { Plus, HardDrive, ArrowLeftRight, Settings, Code2, FolderPlus } from 'lucide-react';
 
 interface QuickActionsProps {
   onOpenUpload: () => void;
@@ -31,22 +32,22 @@ export function QuickActions({ onOpenUpload }: QuickActionsProps) {
       <h3>Quick Actions</h3>
       <div className="quickgrid">
         <button onClick={() => hasDrives ? onOpenUpload() : toast('Add a storage node first')}>
-          <b>{'\uFF0B'} Upload</b><span>Tambah file ke pool</span>
+          <b><Plus size={13} /> Upload</b><span>Tambah file ke pool</span>
         </button>
         <button onClick={handleNewFolder}>
-          <b>{'\uFF0B'} Folder</b><span>Buat folder baru</span>
+          <b><FolderPlus size={13} /> Folder</b><span>Buat folder baru</span>
         </button>
         <button onClick={() => setView('drives')}>
-          <b>{'\u25C9'} Drives</b><span>Kelola storage</span>
+          <b><HardDrive size={13} /> Drives</b><span>Kelola storage</span>
         </button>
         <button onClick={() => toast('Routing mode: ' + routingLabel + ' · ' + connectedNodes.length + ' drives active')}>
-          <b>{'\u21C4'} Routing</b><span>{routingLabel} · {connectedNodes.length} drives</span>
+          <b><ArrowLeftRight size={13} /> Routing</b><span>{routingLabel} · {connectedNodes.length} drives</span>
         </button>
         <button onClick={() => setView('settings')}>
-          <b>{'\u2699'} Settings</b><span>Konfigurasi pool</span>
+          <b><Settings size={13} /> Settings</b><span>Konfigurasi pool</span>
         </button>
         <button onClick={() => setView('api')}>
-          <b>{'\u25B8'} API</b><span>Activity & logs</span>
+          <b><Code2 size={13} /> API</b><span>Activity & logs</span>
         </button>
       </div>
     </div>

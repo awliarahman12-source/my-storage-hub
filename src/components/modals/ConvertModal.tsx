@@ -10,45 +10,81 @@ import {
   translateText, markdownToPdf, pdfToMarkdown, summarizeWithGemini,
   downloadBlob, uint8ToBlob, stripExt, readPdfText,
 } from '@/utils/pdfTools';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Layers,
+  Scissors,
+  Minimize2,
+  FileText,
+  Presentation,
+  Sheet,
+  FileType,
+  Pencil,
+  Image as ImageIcon,
+  FileImage,
+  PenTool,
+  Stamp,
+  RotateCw,
+  Unlock,
+  Shield,
+  LayoutGrid,
+  Archive,
+  Wrench,
+  Hash,
+  Camera,
+  ScanText,
+  GitCompare,
+  Square,
+  Crop,
+  ListChecks,
+  Sparkles,
+  Languages,
+  FileCode,
+  X,
+  ArrowLeft,
+  Download,
+  Check,
+  Loader2,
+} from 'lucide-react';
 
 interface ConvertModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-interface PdfTool { id: string; name: string; description: string; icon: string; }
+interface PdfTool { id: string; name: string; description: string; icon: LucideIcon; }
 
 const tools: PdfTool[] = [
-  { id: 'merge', name: 'Merge', description: 'Gabung beberapa PDF jadi satu', icon: '⧉' },
-  { id: 'split', name: 'Split', description: 'Ambil halaman tertentu dari PDF', icon: '⧖' },
-  { id: 'compress', name: 'Compress', description: 'Perkecil ukuran PDF', icon: '⊝' },
-  { id: 'pdf-to-word', name: 'PDF to Word', description: 'Ubah PDF jadi Word', icon: 'W' },
-  { id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', description: 'Ubah PDF jadi slide', icon: 'P' },
-  { id: 'pdf-to-excel', name: 'PDF to Excel', description: 'Ekstrak tabel ke spreadsheet', icon: 'X' },
-  { id: 'word-to-pdf', name: 'Word to PDF', description: 'Ubah .docx jadi PDF', icon: 'W' },
-  { id: 'powerpoint-to-pdf', name: 'PowerPoint to PDF', description: 'Ubah .pptx jadi PDF', icon: 'P' },
-  { id: 'excel-to-pdf', name: 'Excel to PDF', description: 'Ubah .xlsx jadi PDF', icon: 'X' },
-  { id: 'edit-pdf', name: 'Edit PDF', description: 'Tambah teks ke halaman', icon: '✎' },
-  { id: 'pdf-to-jpg', name: 'PDF to JPG', description: 'Ubah tiap halaman jadi JPG', icon: '◳' },
-  { id: 'jpg-to-pdf', name: 'JPG to PDF', description: 'Gabung gambar jadi PDF', icon: '◰' },
-  { id: 'sign', name: 'Sign', description: 'Tambah tanda tangan', icon: '✓' },
-  { id: 'watermark', name: 'Watermark', description: 'Cap teks di halaman', icon: '⊛' },
-  { id: 'rotate', name: 'Rotate', description: 'Putar halaman PDF', icon: '↻' },
-  { id: 'unlock', name: 'Unlock', description: 'Buka proteksi PDF', icon: '❄' },
-  { id: 'protect', name: 'Protect', description: 'Tandai PDF protected', icon: '✦' },
-  { id: 'organize', name: 'Organize', description: 'Susun ulang halaman', icon: '⧈' },
-  { id: 'pdf-a', name: 'PDF/A', description: 'Format arsip jangka panjang', icon: 'A' },
-  { id: 'repair', name: 'Repair', description: 'Perbaiki PDF rusak', icon: '⚡' },
-  { id: 'page-numbers', name: 'Page Numbers', description: 'Tambah nomor halaman', icon: '#' },
-  { id: 'scan', name: 'Scan', description: 'Scan pakai kamera', icon: '⦿' },
-  { id: 'ocr', name: 'OCR', description: 'Ekstrak teks dari scan', icon: '⊕' },
-  { id: 'compare', name: 'Compare', description: 'Bandingkan 2 PDF', icon: '⧁' },
-  { id: 'redact', name: 'Redact', description: 'Hitamkan area tertentu', icon: '■' },
-  { id: 'crop', name: 'Crop', description: 'Potong margin', icon: '✂' },
-  { id: 'forms', name: 'Forms', description: 'Tambah field form', icon: '⧒' },
-  { id: 'ai-summarizer', name: 'AI Summarizer', description: 'Ringkas dokumen', icon: '❖' },
-  { id: 'translate', name: 'Translate', description: 'Terjemah teks PDF', icon: '⧇' },
-  { id: 'markdown', name: 'Markdown', description: 'PDF ↔ Markdown', icon: 'M' },
+  { id: 'merge', name: 'Merge', description: 'Gabung beberapa PDF jadi satu', icon: Layers },
+  { id: 'split', name: 'Split', description: 'Ambil halaman tertentu dari PDF', icon: Scissors },
+  { id: 'compress', name: 'Compress', description: 'Perkecil ukuran PDF', icon: Minimize2 },
+  { id: 'pdf-to-word', name: 'PDF to Word', description: 'Ubah PDF jadi Word', icon: FileText },
+  { id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', description: 'Ubah PDF jadi slide', icon: Presentation },
+  { id: 'pdf-to-excel', name: 'PDF to Excel', description: 'Ekstrak tabel ke spreadsheet', icon: Sheet },
+  { id: 'word-to-pdf', name: 'Word to PDF', description: 'Ubah .docx jadi PDF', icon: FileType },
+  { id: 'powerpoint-to-pdf', name: 'PowerPoint to PDF', description: 'Ubah .pptx jadi PDF', icon: FileType },
+  { id: 'excel-to-pdf', name: 'Excel to PDF', description: 'Ubah .xlsx jadi PDF', icon: FileType },
+  { id: 'edit-pdf', name: 'Edit PDF', description: 'Tambah teks ke halaman', icon: Pencil },
+  { id: 'pdf-to-jpg', name: 'PDF to JPG', description: 'Ubah tiap halaman jadi JPG', icon: ImageIcon },
+  { id: 'jpg-to-pdf', name: 'JPG to PDF', description: 'Gabung gambar jadi PDF', icon: FileImage },
+  { id: 'sign', name: 'Sign', description: 'Tambah tanda tangan', icon: PenTool },
+  { id: 'watermark', name: 'Watermark', description: 'Cap teks di halaman', icon: Stamp },
+  { id: 'rotate', name: 'Rotate', description: 'Putar halaman PDF', icon: RotateCw },
+  { id: 'unlock', name: 'Unlock', description: 'Buka proteksi PDF', icon: Unlock },
+  { id: 'protect', name: 'Protect', description: 'Tandai PDF protected', icon: Shield },
+  { id: 'organize', name: 'Organize', description: 'Susun ulang halaman', icon: LayoutGrid },
+  { id: 'pdf-a', name: 'PDF/A', description: 'Format arsip jangka panjang', icon: Archive },
+  { id: 'repair', name: 'Repair', description: 'Perbaiki PDF rusak', icon: Wrench },
+  { id: 'page-numbers', name: 'Page Numbers', description: 'Tambah nomor halaman', icon: Hash },
+  { id: 'scan', name: 'Scan', description: 'Scan pakai kamera', icon: Camera },
+  { id: 'ocr', name: 'OCR', description: 'Ekstrak teks dari scan', icon: ScanText },
+  { id: 'compare', name: 'Compare', description: 'Bandingkan 2 PDF', icon: GitCompare },
+  { id: 'redact', name: 'Redact', description: 'Hitamkan area tertentu', icon: Square },
+  { id: 'crop', name: 'Crop', description: 'Potong margin', icon: Crop },
+  { id: 'forms', name: 'Forms', description: 'Tambah field form', icon: ListChecks },
+  { id: 'ai-summarizer', name: 'AI Summarizer', description: 'Ringkas dokumen', icon: Sparkles },
+  { id: 'translate', name: 'Translate', description: 'Terjemah teks PDF', icon: Languages },
+  { id: 'markdown', name: 'Markdown', description: 'PDF ↔ Markdown', icon: FileCode },
 ];
 
 export function ConvertModal({ open, onClose }: ConvertModalProps) {
@@ -60,7 +96,6 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
   const [progress, setProgress] = useState('');
   const [result, setResult] = useState<{ blob: Blob; filename: string }[] | null>(null);
 
-  // Options
   const [fromPage, setFromPage] = useState(1);
   const [toPage, setToPage] = useState(1);
   const [angle, setAngle] = useState<90 | 180 | 270>(90);
@@ -343,20 +378,20 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
 
   if (!open) return null;
 
-  // Tool panel
   if (activeTool) {
     const tool = tools.find((t) => t.id === activeTool)!;
+    const ToolIcon = tool.icon;
     return (
       <div className="modal-wrap open">
         <div className="modal converter" style={{ width: 'min(620px, 100%)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-                <span style={{ fontSize: 20 }}>{tool.icon}</span> {tool.name}
+                <ToolIcon size={20} /> {tool.name}
               </h3>
               <p style={{ marginBottom: 0 }}>{tool.description}</p>
             </div>
-            <button className="btn" onClick={resetTool}>← Back</button>
+            <button className="btn" onClick={resetTool}><ArrowLeft size={14} /> Back</button>
           </div>
 
           <div style={{ marginTop: 16 }}>
@@ -496,7 +531,7 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
 
             {processing && progress && (
               <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#eef2ff', color: '#3b3dbf', fontSize: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div className="preview-spinner" style={{ width: 18, height: 18 }} />
+                <Loader2 size={18} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
                 {progress}
               </div>
             )}
@@ -520,11 +555,15 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
 
             {result && result.length > 0 && (
               <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-                <strong style={{ fontSize: 13, color: '#065f46', display: 'block', marginBottom: 6 }}>✓ Selesai — {result.length} file</strong>
+                <strong style={{ fontSize: 13, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Check size={14} /> Selesai — {result.length} file
+                </strong>
                 <ul style={{ margin: '6px 0 10px', paddingLeft: 18, fontSize: 11, color: '#166534', maxHeight: 120, overflowY: 'auto' }}>
                   {result.slice(0, 10).map((r, i) => <li key={i}>{r.filename} ({(r.blob.size / 1024).toFixed(1)} KB)</li>)}
                 </ul>
-                <button className="btn primary" style={{ fontSize: 12, padding: '8px 16px' }} onClick={handleDownload}>⬇ Download</button>
+                <button className="btn primary" style={{ fontSize: 12, padding: '8px 16px' }} onClick={handleDownload}>
+                  <Download size={14} /> Download
+                </button>
               </div>
             )}
 
@@ -540,7 +579,6 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
     );
   }
 
-  // Tool list
   return (
     <div className={'modal-wrap' + (open ? ' open' : '')}>
       <div className="modal converter" style={{ width: 'min(680px, 100%)' }}>
@@ -549,22 +587,25 @@ export function ConvertModal({ open, onClose }: ConvertModalProps) {
             <h3>Tools PDF</h3>
             <p style={{ marginBottom: 0 }}>Pilih alat PDF yang Anda butuhkan.</p>
           </div>
-          <button className="btn" style={{ flexShrink: 0 }} onClick={onClose}>×</button>
+          <button className="btn" style={{ flexShrink: 0 }} onClick={onClose}><X size={14} /></button>
         </div>
 
         <input className="setting-input" style={{ margin: '14px 0' }} placeholder="Search tools..." value={search} onChange={(e) => setSearch(e.target.value)} />
 
         <div className="modal-body">
           <div className="tools-grid">
-            {filtered.map((tool) => (
-              <button key={tool.id} className="tool-card" onClick={() => handleToolClick(tool)}>
-                <div className="tool-icon">{tool.icon}</div>
-                <div className="tool-info">
-                  <strong>{tool.name}</strong>
-                  <span>{tool.description}</span>
-                </div>
-              </button>
-            ))}
+            {filtered.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <button key={tool.id} className="tool-card" onClick={() => handleToolClick(tool)}>
+                  <div className="tool-icon"><Icon size={18} /></div>
+                  <div className="tool-info">
+                    <strong>{tool.name}</strong>
+                    <span>{tool.description}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
           {filtered.length === 0 && <div style={{ textAlign: 'center', color: '#8a94a5', padding: 30, fontSize: 12 }}>No tools found</div>}
         </div>
