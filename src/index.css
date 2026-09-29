@@ -1947,15 +1947,17 @@ body,
   transition: background 0.6s ease;
 }
 
-.dark-theme body {
-  background:
-    radial-gradient(at 20% 10%, #312e81 0px, transparent 45%),
-    radial-gradient(at 80% 0%, #701a75 0px, transparent 45%),
-    radial-gradient(at 0% 50%, #164e63 0px, transparent 45%),
-    radial-gradient(at 80% 80%, #881337 0px, transparent 45%),
-    radial-gradient(at 0% 100%, #1e3a8a 0px, transparent 45%),
-    linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0c1427 100%);
-  background-attachment: fixed;
+.dark-theme body,
+html.dark-theme body,
+body.dark-theme {
+  background: #0a0e1a !important;
+  background-image: 
+    radial-gradient(ellipse 80% 60% at 10% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 100%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 50% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 70%) !important;
+  background-attachment: fixed !important;
+  background-size: 100% 100% !important;
+  color: #e5e7eb !important;
 }
 
 /* ---------- Glass Utility Classes ---------- */
@@ -2976,4 +2978,342 @@ svg {
 
 .dark-theme .no-drives-banner small {
   color: #fcd34d !important;
+}
+
+/* ============================================================
+   DARK MODE — FIX AGRESIF (v2)
+   ============================================================ */
+
+/* Force body dark */
+.dark-theme { background: #0a0e1a !important; }
+.dark-theme body { background: #0a0e1a !important; }
+
+/* Top bar buttons di dark */
+.dark-theme .top .actions .btn,
+.dark-theme .top .actions .btn:not(.primary) {
+  background: rgba(30, 41, 59, 0.6) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark-theme .top .actions .btn:hover,
+.dark-theme .top .actions .btn:not(.primary):hover {
+  background: rgba(51, 65, 85, 0.8) !important;
+  color: #ffffff !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+.dark-theme .top .actions .btn.primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(139, 92, 246, 0.5) !important;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4) !important;
+}
+
+/* Sidebar di dark */
+.dark-theme .sidebar {
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(30px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(180%) !important;
+  border-right: 1px solid rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .sidebar .brand,
+.dark-theme .sidebar .brand div {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .nav button {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .nav button:hover {
+  background: rgba(148, 163, 184, 0.1) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .nav button.active {
+  background: rgba(99, 102, 241, 0.2) !important;
+  color: #a5b4fc !important;
+}
+
+.dark-theme .nav small {
+  color: #64748b !important;
+}
+
+.dark-theme .pool-mini {
+  background: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+.dark-theme .pool-mini strong {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .pool-mini span {
+  color: #94a3b8 !important;
+}
+
+/* Main content dark */
+.dark-theme main {
+  background: transparent !important;
+}
+
+.dark-theme .top h1 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .top p {
+  color: #94a3b8 !important;
+}
+
+/* Explorer toolbar */
+.dark-theme .explorer-toolbar {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+.dark-theme .explorer-toolbar label {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .explorer-toolbar .xbtn {
+  background: rgba(51, 65, 85, 0.5) !important;
+  color: #e5e7eb !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+.dark-theme .explorer-toolbar .xbtn:hover {
+  background: rgba(71, 85, 105, 0.7) !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .explorer-toolbar .xbtn.primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(139, 92, 246, 0.5) !important;
+}
+
+/* View toggle */
+.dark-theme .view-toggle {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+.dark-theme .view-toggle button {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .view-toggle button.active {
+  background: rgba(99, 102, 241, 0.3) !important;
+  color: #ffffff !important;
+}
+
+/* Select & input */
+.dark-theme select.xbtn,
+.dark-theme input.xbtn,
+.dark-theme select.setting-input,
+.dark-theme input.setting-input {
+  background: rgba(30, 41, 59, 0.6) !important;
+  color: #e5e7eb !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+.dark-theme select.xbtn option {
+  background: #1e293b !important;
+  color: #e5e7eb !important;
+}
+
+/* File list (table) */
+.dark-theme .file-list {
+  background: rgba(20, 28, 45, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .file-row {
+  background: transparent !important;
+  color: #cbd5e1 !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08) !important;
+}
+
+.dark-theme .file-row:hover {
+  background: rgba(99, 102, 241, 0.08) !important;
+}
+
+.dark-theme .file-row.selected {
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+.dark-theme .file-row.header {
+  background: rgba(15, 23, 42, 0.5) !important;
+  color: #94a3b8 !important;
+}
+
+.dark-theme .file-row strong,
+.dark-theme .file-row b {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .file-row .muted {
+  color: #94a3b8 !important;
+}
+
+/* File card (grid) */
+.dark-theme .file-card {
+  background: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .file-card:hover {
+  background: rgba(51, 65, 85, 0.6) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+.dark-theme .file-card .file-name {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .file-card .file-meta {
+  color: #94a3b8 !important;
+}
+
+/* Breadcrumbs */
+.dark-theme .breadcrumbs {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .breadcrumbs button {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .breadcrumbs button:hover {
+  color: #e5e7eb !important;
+}
+
+/* Card */
+.dark-theme .card {
+  background: rgba(20, 28, 45, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .card h1,
+.dark-theme .card h2,
+.dark-theme .card h3,
+.dark-theme .section-title h2 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .section-title span {
+  color: #94a3b8 !important;
+}
+
+/* Empty state */
+.dark-theme .upload-drop {
+  background: rgba(30, 41, 59, 0.4) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+  color: #94a3b8 !important;
+}
+
+/* Scrollbar */
+.dark-theme ::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5) !important;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.35) !important;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.55) !important;
+}
+
+/* Settings menu items */
+.dark-theme .settings-menu,
+.dark-theme .api-menu {
+  background: rgba(20, 28, 45, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .settings-menu-title,
+.dark-theme .api-menu-title {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .setting-tab {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .setting-tab:hover {
+  background: rgba(148, 163, 184, 0.1) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .setting-tab.active {
+  background: rgba(99, 102, 241, 0.2) !important;
+  color: #a5b4fc !important;
+}
+
+/* Setting cards */
+.dark-theme .setting-card {
+  background: rgba(20, 28, 45, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+.dark-theme .setting-header h2 {
+  color: #f1f5f9 !important;
+}
+
+.dark-theme .setting-header p {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .setting-card > label {
+  color: #e5e7eb !important;
+}
+
+.dark-theme .setting-card small {
+  color: #94a3b8 !important;
+}
+
+.dark-theme .row-setting b {
+  color: #f1f5f9 !important;
+}
+
+/* Fix text color globally in dark */
+.dark-theme,
+.dark-theme * {
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+}
+
+/* File explorer list — column storage jangan wrap */
+.dark-theme .file-row > div {
+  color: inherit;
+}
+
+.dark-theme .file-row .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tombol New — pastikan gradasi visible */
+.dark-theme .xbtn.primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  color: #fff !important;
+}
+
+/* Fix tombol logout di top bar */
+.dark-theme .top .actions .btn[title="Logout"] {
+  background: rgba(30, 41, 59, 0.6) !important;
+  color: #e5e7eb !important;
+}
+
+.dark-theme .top .actions .btn[title="Logout"]:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
 }
