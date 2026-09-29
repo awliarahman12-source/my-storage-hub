@@ -105,17 +105,8 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const lastNavRef = useRef<{ id: string; time: number } | null>(null);
 
   // Dedup file yang punya id+nodeId sama (biar tidak multi-select)
-  const uniqueSorted = useMemo(() => {
-    const seen = new Set<string>();
-    const out: DriveFileItem[] = [];
-    for (const f of sorted) {
-      const key = `${f.id}::${f.nodeId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(f);
-    }
-    return out;
-  }, [sorted]);
+  const sorted = useMemo(() => {
+    return [...(searchResults || driveFiles)].sort((a, b) => {
       if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
       switch (sort) {
         case 'name-desc': return String(b.name).localeCompare(String(a.name));
@@ -128,6 +119,19 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       }
     });
   }, [searchResults, driveFiles, sort]);
+
+  // Dedup file yang punya id+nodeId sama (biar tidak multi-select)
+  const uniqueSorted = useMemo(() => {
+    const seen = new Set<string>();
+    const out: DriveFileItem[] = [];
+    for (const f of sorted) {
+      const key = `${f.id}::${f.nodeId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(f);
+    }
+    return out;
+  }, [sorted]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
