@@ -35,6 +35,10 @@ import {
   Inbox,
   X,
   AlertTriangle,
+  CheckSquare,
+  Square,
+  Check,
+  DownloadCloud,
 } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -52,6 +56,7 @@ const ROLE_LABEL: Record<ShareRole, string> = {
 export function ShareHeader({
   title, role, kind, viewMode, onToggleView, onOpenDetails,
   isEditor, uploading, onUpload, onNewFolder, onRefresh,
+  selectMode, onToggleSelectMode, selectableCount,
 }: {
   title: string;
   role: ShareRole;
@@ -64,7 +69,11 @@ export function ShareHeader({
   onUpload?: () => void;
   onNewFolder?: () => void;
   onRefresh?: () => void;
+  selectMode?: boolean;
+  onToggleSelectMode?: () => void;
+  selectableCount?: number;
 }) {
+  const canSelect = kind !== 'file' && (selectableCount ?? 0) > 0;
   return (
     <header className="share-topbar">
       <div className="share-brand">
@@ -82,6 +91,15 @@ export function ShareHeader({
               <FolderPlus size={18} />
             </button>
           </>
+        )}
+        {canSelect && onToggleSelectMode && (
+          <button
+            className={'share-icon-btn' + (selectMode ? ' active' : '')}
+            onClick={onToggleSelectMode}
+            title={selectMode ? 'Keluar mode pilih' : 'Pilih file'}
+          >
+            {selectMode ? <X size={18} /> : <CheckSquare size={18} />}
+          </button>
         )}
         {kind === 'folder' && (
           <button className="share-icon-btn" onClick={onToggleView} title="Toggle view">
@@ -134,6 +152,7 @@ export function ShareBreadcrumb({
 
 export function ShareGrid({
   files, onItemClick, onOpenDetails, detailsFileId, isEditor, onContextMenu,
+  selectMode, selectedIds, onToggleSelect,
 }: {
   files: ShareFile[];
   onItemClick: (f: ShareFile) => void;
@@ -141,6 +160,9 @@ export function ShareGrid({
   detailsFileId?: string;
   isEditor?: boolean;
   onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (f: ShareFile) => void;
 }) {
   return (
     <div className="share-content">
@@ -154,6 +176,9 @@ export function ShareGrid({
             isSelected={detailsFileId === f.id}
             isEditor={isEditor}
             onContextMenu={onContextMenu}
+            selectMode={selectMode}
+            isChecked={selectedIds?.has(f.id) ?? false}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       </div>
@@ -163,6 +188,7 @@ export function ShareGrid({
 
 function ShareTile({
   file, onClick, onDetails, isSelected, isEditor, onContextMenu,
+  selectMode, isChecked, onToggleSelect,
 }: {
   file: ShareFile;
   onClick: () => void;
@@ -170,6 +196,9 @@ function ShareTile({
   isSelected: boolean;
   isEditor?: boolean;
   onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
+  selectMode?: boolean;
+  isChecked?: boolean;
+  onToggleSelect?: (f: ShareFile) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -194,11 +223,20 @@ function ShareTile({
   const folderPreviews = file.isFolder ? (file.previewThumbs || []) : [];
   const hasFolderPreview = folderPreviews.length > 0;
 
+  const handleClick = () => {
+    if (selectMode && onToggleSelect) {
+      onToggleSelect(file);
+      return;
+    }
+    onClick();
+  };
+
   return (
     <button
-      className={`share-tile ${isSelected ? 'selected' : ''}`}
-      onClick={onClick}
+      className={`share-tile ${isSelected ? 'selected' : ''} ${selectMode ? 'select-mode' : ''} ${isChecked ? 'checked' : ''}`}
+      onClick={handleClick}
       onContextMenu={(e) => {
+        if (selectMode) { e.preventDefault(); return; }
         if (isEditor && onContextMenu) { e.preventDefault(); onContextMenu(e, file); }
         else { e.preventDefault(); onDetails(); }
       }}
@@ -231,12 +269,17 @@ function ShareTile({
         ) : (
           <div style={{ color: 'rgba(255,255,255,.5)' }}>{renderIcon()}</div>
         )}
-        {file.comments > 0 && (
+        {file.comments > 0 && !selectMode && (
           <span className="share-badge-comments">
             <MessageCircle size={10} /> {file.comments}
           </span>
         )}
-        {isEditor && onContextMenu && (
+        {selectMode && (
+          <span className={`share-tile-check ${isChecked ? 'on' : ''}`}>
+            {isChecked ? <Check size={14} /> : null}
+          </span>
+        )}
+        {!selectMode && isEditor && onContextMenu && (
           <span
             className="share-tile-menu-btn"
             onClick={(e) => { e.stopPropagation(); onContextMenu(e, file); }}
@@ -260,6 +303,7 @@ function ShareTile({
 
 export function ShareList({
   files, onItemClick, onOpenDetails, detailsFileId, isEditor, onContextMenu,
+  selectMode, selectedIds, onToggleSelect,
 }: {
   files: ShareFile[];
   onItemClick: (f: ShareFile) => void;
@@ -267,9 +311,11 @@ export function ShareList({
   detailsFileId?: string;
   isEditor?: boolean;
   onContextMenu?: (e: React.MouseEvent, f: ShareFile) => void;
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (f: ShareFile) => void;
 }) {
   const renderIcon = (f: ShareFile) => {
-    // Folder dengan preview thumbnails → tampil grid mini
     if (f.isFolder && f.previewThumbs && f.previewThumbs.length > 0) {
       return (
         <div className="share-folder-preview-list">
@@ -301,36 +347,95 @@ export function ShareList({
   return (
     <div className="share-content">
       <div className="share-list">
-        {files.map((f) => (
-          <button
-            key={f.id}
-            className={`share-list-row ${detailsFileId === f.id ? 'selected' : ''}`}
-            onClick={() => onItemClick(f)}
-            onContextMenu={(e) => {
-              if (isEditor && onContextMenu) { e.preventDefault(); onContextMenu(e, f); }
-              else { e.preventDefault(); onOpenDetails(f); }
-            }}
-          >
-            <div className="share-list-icon">{renderIcon(f)}</div>
-            <div className="share-list-info">
-              <strong>{f.name}</strong>
-              <small>
-                {f.isFolder ? 'Folder' : f.sizeLabel}
-                {f.comments > 0 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6 }}><MessageCircle size={10} /> {f.comments}</span> : ''}
-              </small>
-            </div>
-            <div className="share-list-meta">
-              {f.modified}
-              {isEditor && onContextMenu && (
-                <span
-                  className="share-list-menu-btn"
-                  onClick={(e) => { e.stopPropagation(); onContextMenu(e, f); }}
-                  role="button" aria-label="More actions"
-                ><MoreVertical size={14} /></span>
+        {files.map((f) => {
+          const checked = selectedIds?.has(f.id) ?? false;
+          const handleClick = () => {
+            if (selectMode && onToggleSelect) {
+              onToggleSelect(f);
+              return;
+            }
+            onItemClick(f);
+          };
+          return (
+            <button
+              key={f.id}
+              className={`share-list-row ${detailsFileId === f.id ? 'selected' : ''} ${selectMode ? 'select-mode' : ''} ${checked ? 'checked' : ''}`}
+              onClick={handleClick}
+              onContextMenu={(e) => {
+                if (selectMode) { e.preventDefault(); return; }
+                if (isEditor && onContextMenu) { e.preventDefault(); onContextMenu(e, f); }
+                else { e.preventDefault(); onOpenDetails(f); }
+              }}
+            >
+              {selectMode && (
+                <span className={`share-tile-check list ${checked ? 'on' : ''}`}>
+                  {checked ? <Check size={12} /> : null}
+                </span>
               )}
-            </div>
-          </button>
-        ))}
+              <div className="share-list-icon">{renderIcon(f)}</div>
+              <div className="share-list-info">
+                <strong>{f.name}</strong>
+                <small>
+                  {f.isFolder ? 'Folder' : f.sizeLabel}
+                  {f.comments > 0 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6 }}><MessageCircle size={10} /> {f.comments}</span> : ''}
+                </small>
+              </div>
+              <div className="share-list-meta">
+                {f.modified}
+                {!selectMode && isEditor && onContextMenu && (
+                  <span
+                    className="share-list-menu-btn"
+                    onClick={(e) => { e.stopPropagation(); onContextMenu(e, f); }}
+                    role="button" aria-label="More actions"
+                  ><MoreVertical size={14} /></span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// BULK ACTION BAR
+// ============================================================
+
+export function ShareBulkBar({
+  count, totalCount, onSelectAll, onClear, onDownload, onCancel, downloading,
+}: {
+  count: number;
+  totalCount: number;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onDownload: () => void;
+  onCancel: () => void;
+  downloading?: boolean;
+}) {
+  const allSelected = count === totalCount && totalCount > 0;
+  return (
+    <div className="share-bulkbar">
+      <div className="share-bulkbar-left">
+        <button className="share-bulkbar-close" onClick={onCancel} title="Tutup">
+          <X size={16} />
+        </button>
+        <span className="share-bulkbar-count">
+          <strong>{count}</strong> dipilih
+        </span>
+        <button className="share-bulkbar-btn ghost" onClick={allSelected ? onClear : onSelectAll}>
+          {allSelected ? <><Square size={12} /> Hilangkan semua</> : <><CheckSquare size={12} /> Pilih semua</>}
+        </button>
+      </div>
+      <div className="share-bulkbar-right">
+        <button
+          className="share-bulkbar-btn primary"
+          onClick={onDownload}
+          disabled={count === 0 || downloading}
+        >
+          <DownloadCloud size={14} />
+          {downloading ? 'Mengunduh...' : 'Download'}
+        </button>
       </div>
     </div>
   );

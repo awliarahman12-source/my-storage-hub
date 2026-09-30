@@ -12,6 +12,7 @@ import {
   shareTrash,
   shareUntrash,
   shareStar,
+  shareDownloadUrl,
   type PublicShareInfo,
   type ShareFile,
   type ShareComment,
@@ -28,6 +29,7 @@ import {
   ShareErrorState,
   ShareLoadingState,
   ShareToast,
+  ShareBulkBar,
 } from './shareComponents';
 import {
   ShareEditorContextMenu,
@@ -68,6 +70,11 @@ export function SharePage() {
   const [detailsFile, setDetailsFile] = useState<ShareFile | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [toast, setToast] = useState('');
+
+  // === SELECT MODE STATE ===
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDownloading, setBulkDownloading] = useState(false);
 
   const [comments, setComments] = useState<ShareComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -119,6 +126,12 @@ export function SharePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, passwordOk, info, currentFolderId]);
 
+  // Auto-clear selection saat pindah folder
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, [currentFolderId]);
+
   useEffect(() => {
     if (info?.kind === 'file' && files.length === 1 && lightboxIndex < 0) {
       setLightboxIndex(0);
@@ -165,13 +178,16 @@ export function SharePage() {
   };
 
   const handleItemClick = (file: ShareFile) => {
+    // Kalau sedang mode select, klik = toggle checkbox
+    if (selectMode) {
+      toggleSelect(file);
+      return;
+    }
     if (file.isFolder) {
-      // Folder dalam share kind='folder' → browse
       if (info?.kind === 'folder') {
         setCurrentFolderId(file.id);
         setLightboxIndex(-1);
       } else {
-        // Folder dalam share kind='items' → tidak bisa browse
         showToast('Folder di share multi-item tidak bisa dibuka. Buat share folder tunggal untuk browse.');
       }
       return;
@@ -184,6 +200,60 @@ export function SharePage() {
   const handleBreadcrumbClick = (index: number) => {
     if (index < 0) setCurrentFolderId('');
     else setCurrentFolderId(breadcrumbs[index].id);
+  };
+
+  // === SELECT MODE HANDLERS ===
+  const toggleSelect = (file: ShareFile) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(file.id)) next.delete(file.id);
+      else next.add(file.id);
+      return next;
+    });
+  };
+
+  const handleToggleSelectMode = () => {
+    setSelectMode((v) => !v);
+    if (selectMode) setSelectedIds(new Set());
+  };
+
+  const handleSelectAll = () => {
+    const downloadable = files.filter((f) => !f.isFolder);
+    setSelectedIds(new Set(downloadable.map((f) => f.id)));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDownload = async () => {
+    if (!token || selectedIds.size === 0) return;
+    const targets = files.filter((f) => selectedIds.has(f.id) && !f.isFolder);
+    if (targets.length === 0) {
+      showToast('Tidak ada file (bukan folder) yang dipilih');
+      return;
+    }
+    setBulkDownloading(true);
+    let ok = 0;
+    for (const f of targets) {
+      try {
+        const url = shareDownloadUrl(token, f.id, password || undefined, f.nodeId);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = f.name;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        ok++;
+        // Jeda antar download biar browser tidak block
+        await new Promise((r) => setTimeout(r, 400));
+      } catch {
+        // skip
+      }
+    }
+    setBulkDownloading(false);
+    showToast(`✓ ${ok} file diunduh`);
   };
 
   const openDetails = async (file: ShareFile) => {
@@ -399,6 +469,7 @@ export function SharePage() {
   };
 
   const handleContextMenu = (e: React.MouseEvent, file: ShareFile) => {
+    if (selectMode) return;
     e.preventDefault();
     e.stopPropagation();
     const x = Math.min(e.clientX, window.innerWidth - 220);
@@ -473,9 +544,13 @@ export function SharePage() {
   const imageItems = visibleFiles.filter((f) => !f.isFolder);
   const folderItems = visibleFiles.filter((f) => f.isFolder);
 
+  // Hitung total file yang bisa di-bulk download (bukan folder)
+  const downloadableCount = visibleFiles.filter((f) => !f.isFolder).length;
+  const selectedCount = selectedIds.size;
+
   return (
     <div
-      className={'share-app' + (dragging ? ' dragging' : '')}
+      className={'share-app' + (dragging ? ' dragging' : '') + (selectedCount > 0 ? ' has-bulkbar' : '')}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -495,6 +570,9 @@ export function SharePage() {
         onUpload={handleUploadClick}
         onNewFolder={handleNewFolder}
         onRefresh={handleRefresh}
+        selectMode={selectMode}
+        onToggleSelectMode={handleToggleSelectMode}
+        selectableCount={downloadableCount}
       />
 
       <ShareBreadcrumb
@@ -553,6 +631,9 @@ export function SharePage() {
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
           isEditor={isEditor}
           onContextMenu={handleContextMenu}
+          selectMode={selectMode}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
         />
       ) : (
         <ShareList
@@ -562,12 +643,27 @@ export function SharePage() {
           detailsFileId={detailsOpen ? detailsFile?.id : undefined}
           isEditor={isEditor}
           onContextMenu={handleContextMenu}
+          selectMode={selectMode}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
         />
       )}
 
       <div className="share-footer">
         {visibleFiles.length} items · {info.view_count} views · Powered by My Storage Hub
       </div>
+
+      {selectMode && (
+        <ShareBulkBar
+          count={selectedCount}
+          totalCount={downloadableCount}
+          onSelectAll={handleSelectAll}
+          onClear={handleClearSelection}
+          onDownload={() => void handleBulkDownload()}
+          onCancel={handleToggleSelectMode}
+          downloading={bulkDownloading}
+        />
+      )}
 
       {lightboxIndex >= 0 && imageItems[lightboxIndex] && (
         <ShareLightbox
