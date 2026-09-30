@@ -39,6 +39,7 @@ import {
   Square,
   Check,
   DownloadCloud,
+  Package,
 } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -399,13 +400,14 @@ export function ShareList({
 }
 
 // ============================================================
-// BULK ACTION BAR
+// BULK ACTION BAR (SMART LABEL)
 // ============================================================
 
 export function ShareBulkBar({
-  count, totalCount, onSelectAll, onClear, onDownload, onCancel, downloading,
+  count, fileCount, totalCount, onSelectAll, onClear, onDownload, onCancel, downloading,
 }: {
   count: number;
+  fileCount?: number;
   totalCount: number;
   onSelectAll: () => void;
   onClear: () => void;
@@ -414,6 +416,12 @@ export function ShareBulkBar({
   downloading?: boolean;
 }) {
   const allSelected = count === totalCount && totalCount > 0;
+  // fileCount = jumlah file (non-folder) yang dipilih
+  // Kalau <=1 → label "Download", kalau >1 → "Download ZIP"
+  const fCount = fileCount ?? count;
+  const isZip = fCount > 1;
+  const isDisabled = count === 0 || downloading || fCount === 0;
+
   return (
     <div className="share-bulkbar">
       <div className="share-bulkbar-left">
@@ -431,10 +439,15 @@ export function ShareBulkBar({
         <button
           className="share-bulkbar-btn primary"
           onClick={onDownload}
-          disabled={count === 0 || downloading}
+          disabled={isDisabled}
+          title={
+            fCount === 0 ? 'Pilih minimal 1 file (folder tidak bisa didownload)'
+            : isZip ? `Bungkus ${fCount} file jadi 1 ZIP`
+            : 'Download file'
+          }
         >
-          <DownloadCloud size={14} />
-          {downloading ? 'Mengunduh...' : 'Download'}
+          {isZip ? <Package size={14} /> : <DownloadCloud size={14} />}
+          {downloading ? 'Memproses...' : (isZip ? 'Download ZIP' : 'Download')}
         </button>
       </div>
     </div>

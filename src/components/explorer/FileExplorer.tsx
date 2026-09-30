@@ -258,14 +258,24 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     toast('Downloading ' + file.name);
   };
 
-  // ============ BULK ZIP DOWNLOAD ============
-  const handleBulkDownloadZip = async (targets: DriveFileItem[]) => {
+  // ============ SMART BULK DOWNLOAD ============
+  // 1 file → download langsung (tanpa ZIP)
+  // >1 file → bungkus jadi ZIP
+  const handleBulkDownload = async (targets: DriveFileItem[]) => {
+    // Buang folder dari target
     const fileTargets = targets.filter((f) => !f.isFolder);
     if (fileTargets.length === 0) {
       toast('Tidak ada file (bukan folder) yang dipilih');
       return;
     }
 
+    // ==== 1 FILE → DOWNLOAD LANGSUNG ====
+    if (fileTargets.length === 1) {
+      handleDownload(fileTargets[0]);
+      return;
+    }
+
+    // ==== >1 FILE → ZIP ====
     let JSZip: any;
     try {
       JSZip = (await import('jszip')).default;
@@ -481,7 +491,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       case 'rename': handleRename(file); break;
       case 'details': showDetails(file); break;
       case 'download': bulk.forEach((f) => handleDownload(f)); break;
-      case 'download-zip': void handleBulkDownloadZip(bulk); break;
+      case 'download-smart': void handleBulkDownload(bulk); break;
       case 'share': setShareFiles(bulk); break;
       case 'share-link':
         if (isBulk) toast(`Membuat 1 share link untuk ${bulk.length} file...`);
@@ -546,6 +556,14 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     }
   };
 
+  // Hitung berapa file (bukan folder) yang di-select, buat label tombol dinamis
+  const selectedFileCount = useMemo(() => {
+    return uniqueSorted.filter((f) => selected.has(f.id) && !f.isFolder).length;
+  }, [uniqueSorted, selected]);
+
+  const downloadBtnLabel = selectedFileCount <= 1 ? 'Download' : 'Download ZIP';
+  const downloadBtnIcon = selectedFileCount <= 1 ? <Download size={14} /> : <Package size={14} />;
+
   return (
     <>
       <div className="breadcrumbs">
@@ -591,11 +609,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
               className="xbtn primary"
               onClick={() => {
                 const targets = uniqueSorted.filter((x) => selected.has(x.id));
-                void handleBulkDownloadZip(targets);
+                void handleBulkDownload(targets);
               }}
               disabled={!!zipProgress}
             >
-              <Package size={14} /> {zipProgress ? 'Membuat ZIP...' : 'Download ZIP'}
+              {downloadBtnIcon} {zipProgress ? 'Membuat ZIP...' : downloadBtnLabel}
             </button>
             <button className="xbtn" onClick={() => {
               const targets = uniqueSorted.filter((x) => selected.has(x.id));
@@ -897,7 +915,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           <button onClick={() => contextAction('open')}>Open</button>
           <button onClick={() => contextAction('download')}><Download size={14} /> Download</button>
           {selected.size > 1 && (
-            <button onClick={() => contextAction('download-zip')}><Package size={14} /> Download as ZIP ({selected.size})</button>
+            <button onClick={() => contextAction('download-smart')}><Package size={14} /> Download as ZIP ({selected.size})</button>
           )}
           <button onClick={() => contextAction('share-link')}><Link2 size={14} /> Create Share Link</button>
           <button onClick={() => contextAction('share')}><Users size={14} /> Google Drive Share</button>

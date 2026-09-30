@@ -50,7 +50,6 @@ function parseRoute(): { token: string | null; kind: 'folder' | 'file' } {
   return { token: null, kind: 'folder' };
 }
 
-// Nama file aman untuk ZIP (hapus karakter yang dilarang)
 function safeZipName(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'file';
 }
@@ -77,7 +76,6 @@ export function SharePage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [toast, setToast] = useState('');
 
-  // === SELECT MODE STATE ===
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zipProgress, setZipProgress] = useState<{ current: number; total: number; name: string } | null>(null);
@@ -206,7 +204,6 @@ export function SharePage() {
     else setCurrentFolderId(breadcrumbs[index].id);
   };
 
-  // === SELECT MODE HANDLERS ===
   const toggleSelect = (file: ShareFile) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -230,45 +227,34 @@ export function SharePage() {
     setSelectedIds(new Set());
   };
 
-  /**
-   * Download satu-satu via iframe tersembunyi (fallback, browser bisa block).
-   */
-  const handleBulkDownloadDirect = async () => {
+  // ============ SMART BULK DOWNLOAD ============
+  // 1 file → download langsung (tanpa ZIP)
+  // >1 file → bungkus jadi ZIP
+  const handleBulkDownload = async () => {
     if (!token || selectedIds.size === 0) return;
     const targets = files.filter((f) => selectedIds.has(f.id) && !f.isFolder);
     if (targets.length === 0) {
       showToast('Tidak ada file (bukan folder) yang dipilih');
       return;
     }
-    showToast(`Mengunduh ${targets.length} file... Izinkan multiple download jika diminta browser.`);
-    for (const f of targets) {
+
+    // ==== 1 FILE → DOWNLOAD LANGSUNG ====
+    if (targets.length === 1) {
+      const f = targets[0];
       const dlUrl = shareDownloadUrl(token, f.id, password || undefined, f.nodeId);
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = dlUrl;
-      document.body.appendChild(iframe);
-      // Hapus iframe setelah beberapa detik
-      setTimeout(() => {
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-      }, 3000);
-      // Jeda antar download biar browser bisa proses
-      await new Promise((r) => setTimeout(r, 1200));
-    }
-  };
-
-  /**
-   * Bulk ZIP download — fetch semua file, bungkus jadi 1 ZIP, download.
-   * 100% reliable, tidak tergantung izin browser.
-   */
-  const handleBulkDownloadZip = async () => {
-    if (!token || selectedIds.size === 0) return;
-    const targets = files.filter((f) => selectedIds.has(f.id) && !f.isFolder);
-    if (targets.length === 0) {
-      showToast('Tidak ada file (bukan folder) yang dipilih');
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = f.name;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast(`Mengunduh ${f.name}`);
+      setSelectedIds(new Set());
       return;
     }
 
-    // Dynamic import JSZip biar bundle utama tetap ringan
+    // ==== >1 FILE → ZIP ====
     let JSZip: any;
     try {
       JSZip = (await import('jszip')).default;
@@ -279,7 +265,6 @@ export function SharePage() {
 
     const zip = new JSZip();
     const usedNames = new Set<string>();
-
     setZipProgress({ current: 0, total: targets.length, name: '' });
 
     for (let i = 0; i < targets.length; i++) {
@@ -287,23 +272,18 @@ export function SharePage() {
       setZipProgress({ current: i + 1, total: targets.length, name: f.name });
       try {
         const blob = await fetchShareFileBlob(token, f.id, password || undefined, f.nodeId);
-        // Pastikan nama file unik di dalam ZIP
         let name = safeZipName(f.name);
         let counter = 1;
         while (usedNames.has(name)) {
           const dot = name.lastIndexOf('.');
-          if (dot > 0) {
-            name = `${name.substring(0, dot)}_${counter}${name.substring(dot)}`;
-          } else {
-            name = `${name}_${counter}`;
-          }
+          if (dot > 0) name = `${name.substring(0, dot)}_${counter}${name.substring(dot)}`;
+          else name = `${name}_${counter}`;
           counter++;
         }
         usedNames.add(name);
         zip.file(name, blob);
       } catch (err) {
         console.error(`Gagal fetch ${f.name}:`, err);
-        // Tetap lanjut ke file berikutnya, tapi catat yang gagal
         zip.file(`_FAILED_${safeZipName(f.name)}.txt`, `Failed to download: ${f.name}\nReason: ${err instanceof Error ? err.message : 'unknown'}`);
       }
     }
@@ -316,7 +296,6 @@ export function SharePage() {
       compressionOptions: { level: 6 },
     });
 
-    // Trigger download
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
     a.href = url;
@@ -330,6 +309,7 @@ export function SharePage() {
 
     setZipProgress(null);
     showToast(`✓ ZIP berisi ${targets.length} file diunduh`);
+    setSelectedIds(new Set());
   };
 
   const openDetails = async (file: ShareFile) => {
@@ -623,6 +603,9 @@ export function SharePage() {
   const downloadableCount = visibleFiles.filter((f) => !f.isFolder).length;
   const selectedCount = selectedIds.size;
 
+  // Hitung berapa file (bukan folder) yang di-select, buat label dinamis
+  const selectedFileCount = visibleFiles.filter((f) => selectedIds.has(f.id) && !f.isFolder).length;
+
   return (
     <div
       className={'share-app' + (dragging ? ' dragging' : '') + (selectedCount > 0 ? ' has-bulkbar' : '')}
@@ -731,10 +714,11 @@ export function SharePage() {
       {selectMode && (
         <ShareBulkBar
           count={selectedCount}
+          fileCount={selectedFileCount}
           totalCount={downloadableCount}
           onSelectAll={handleSelectAll}
           onClear={handleClearSelection}
-          onDownload={() => void handleBulkDownloadZip()}
+          onDownload={() => void handleBulkDownload()}
           onCancel={handleToggleSelectMode}
           downloading={!!zipProgress}
         />
