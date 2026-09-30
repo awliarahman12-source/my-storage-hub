@@ -7,9 +7,24 @@ function getBaseUrl(): string {
   return `${SUPABASE_URL}/functions/v1/google-drive-auth`;
 }
 
-function getSessionToken(): string | null {
+/**
+ * Ambil session token dari localStorage. Cek beberapa nama key
+ * karena histori project bisa punya penamaan berbeda.
+ */
+export function getSessionToken(): string | null {
   try {
-    return localStorage.getItem('ms_session_token');
+    const candidates = [
+      'ms_session_token',
+      'session_token',
+      'ms_token',
+      'auth_token',
+      'ms_session',
+    ];
+    for (const key of candidates) {
+      const v = localStorage.getItem(key);
+      if (v && v.length > 10) return v;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -24,10 +39,8 @@ function getHeaders(): Record<string, string> {
   const token = getSessionToken();
   if (token) {
     headers['X-Session-Token'] = token;
-    // Fallback tambahan — beberapa setup butuh ini
-    headers['X-Auth-Token'] = token;
   } else {
-    console.warn('[storageNodes] No ms_session_token in localStorage — request akan 401');
+    console.warn('[storageNodes] No session token in localStorage — request akan 401');
   }
   return headers;
 }
@@ -59,7 +72,6 @@ export async function deleteStorageNode(nodeId: string): Promise<void> {
     credentials: 'omit',
   });
   if (!res.ok) {
-    // Log detail biar gampang debug
     const body = await res.text().catch(() => '');
     console.error('[deleteStorageNode] failed', {
       status: res.status,

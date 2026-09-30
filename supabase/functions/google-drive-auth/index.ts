@@ -1,5 +1,5 @@
 // Phase 9: Security hardening — session validation, OAuth state validation, security headers
-// Fix: DELETE /nodes/:id 401 — tambah logging + handle double-slash
+// Fix: DELETE /nodes/:id 401 — logging detail + handle double-slash
 import {
   getEnv,
   getSupabase,
@@ -227,7 +227,6 @@ Deno.serve(async (req: Request) => {
   const cleanPath = url.pathname.replace(/\/+/g, "/");
   const path = cleanPath.replace(/^\/google-drive-auth/, "");
 
-  // Debug log untuk bantu diagnosa
   console.log(`[google-drive-auth] ${req.method} ${path}`);
 
   try {
@@ -265,7 +264,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // GET /google-drive-auth/callback — handle OAuth callback (public, validates state cookie)
+    // GET /google-drive-auth/callback — handle OAuth callback
     if (path === "/callback" && req.method === "GET") {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
@@ -312,7 +311,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // GET /google-drive-auth/redirect — show error page for OAuth failures (public)
+    // GET /google-drive-auth/redirect — error page
     if (path === "/redirect" && req.method === "GET") {
       const errorType = url.searchParams.get("error") || "unknown";
       const messages: Record<string, string> = {
@@ -332,13 +331,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ============ Semua endpoint di bawah butuh session ============
+    // ============ All remaining endpoints require session ============
     const session = await validateSession(req);
     if (!session) {
-      // Log detail untuk diagnosa
       console.warn(`[google-drive-auth] 401 on ${req.method} ${path}`, {
-        hasXsSessionToken: !!req.headers.get("X-Session-Token"),
-        hasXAuthToken: !!req.headers.get("X-Auth-Token"),
+        hasSessionHeader: !!req.headers.get("X-Session-Token"),
         hasCookie: !!req.headers.get("Cookie"),
         hasAuth: !!req.headers.get("Authorization"),
       });
@@ -376,7 +373,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /google-drive-auth/nodes/:id/refresh — refresh node quota & status
+    // POST /google-drive-auth/nodes/:id/refresh
     if (path.match(/^\/nodes\/[^/]+\/refresh$/) && req.method === "POST") {
       const nodeId = validateId(path.split("/")[2], "node ID");
 
@@ -469,7 +466,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // POST /google-drive-auth/nodes/:id/priority — set node priority
+    // POST /google-drive-auth/nodes/:id/priority
     if (path.match(/^\/nodes\/[^/]+\/priority$/) && req.method === "POST") {
       const nodeId = validateId(path.split("/")[2], "node ID");
 
@@ -490,7 +487,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // POST /google-drive-auth/nodes/:id/toggle — enable/disable node
+    // POST /google-drive-auth/nodes/:id/toggle
     if (path.match(/^\/nodes\/[^/]+\/toggle$/) && req.method === "POST") {
       const nodeId = validateId(path.split("/")[2], "node ID");
 

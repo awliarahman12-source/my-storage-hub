@@ -26,11 +26,13 @@ export function getSupabase(): ReturnType<typeof createClient> {
 // ============ CORS ============
 
 export function corsHeaders(origin: string | null): Record<string, string> {
+  // Header yang diizinkan — HARUS match dengan apa yang dikirim frontend
+  const allowedHeaders = "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token";
   if (origin) {
     return {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token, X-Auth-Token",
+      "Access-Control-Allow-Headers": allowedHeaders,
       "Access-Control-Allow-Credentials": "true",
       "Vary": "Origin",
     };
@@ -38,7 +40,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token, X-Auth-Token",
+    "Access-Control-Allow-Headers": allowedHeaders,
   };
 }
 
@@ -109,16 +111,11 @@ export interface SessionInfo {
 /**
  * Ambil session token dari berbagai sumber, dengan prioritas:
  * 1. Header X-Session-Token (cara utama)
- * 2. Header X-Auth-Token (fallback)
- * 3. Cookie ms_session_token (fallback)
- * 4. Query param `st` HANYA untuk /auth redirect (bukan untuk validasi)
+ * 2. Cookie ms_session_token (fallback)
  */
 function extractSessionToken(req: Request): string | null {
   const h1 = req.headers.get("X-Session-Token");
   if (h1) return h1.trim();
-
-  const h2 = req.headers.get("X-Auth-Token");
-  if (h2) return h2.trim();
 
   const c = getCookie(req, "ms_session_token");
   if (c) return c.trim();
