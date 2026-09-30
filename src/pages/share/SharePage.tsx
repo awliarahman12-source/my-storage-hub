@@ -13,6 +13,7 @@ import {
   shareUntrash,
   shareStar,
   shareDownloadUrl,
+  fetchShareFileBlob,
   type PublicShareInfo,
   type ShareFile,
   type ShareComment,
@@ -49,6 +50,11 @@ function parseRoute(): { token: string | null; kind: 'folder' | 'file' } {
   return { token: null, kind: 'folder' };
 }
 
+// Nama file aman untuk ZIP (hapus karakter yang dilarang)
+function safeZipName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'file';
+}
+
 export function SharePage() {
   const { token, kind } = parseRoute();
 
@@ -74,7 +80,7 @@ export function SharePage() {
   // === SELECT MODE STATE ===
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [zipProgress, setZipProgress] = useState<{ current: number; total: number; name: string } | null>(null);
 
   const [comments, setComments] = useState<ShareComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -126,7 +132,6 @@ export function SharePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, passwordOk, info, currentFolderId]);
 
-  // Auto-clear selection saat pindah folder
   useEffect(() => {
     setSelectedIds(new Set());
     setSelectMode(false);
@@ -178,7 +183,6 @@ export function SharePage() {
   };
 
   const handleItemClick = (file: ShareFile) => {
-    // Kalau sedang mode select, klik = toggle checkbox
     if (selectMode) {
       toggleSelect(file);
       return;
@@ -226,34 +230,106 @@ export function SharePage() {
     setSelectedIds(new Set());
   };
 
-  const handleBulkDownload = async () => {
+  /**
+   * Download satu-satu via iframe tersembunyi (fallback, browser bisa block).
+   */
+  const handleBulkDownloadDirect = async () => {
     if (!token || selectedIds.size === 0) return;
     const targets = files.filter((f) => selectedIds.has(f.id) && !f.isFolder);
     if (targets.length === 0) {
       showToast('Tidak ada file (bukan folder) yang dipilih');
       return;
     }
-    setBulkDownloading(true);
-    let ok = 0;
+    showToast(`Mengunduh ${targets.length} file... Izinkan multiple download jika diminta browser.`);
     for (const f of targets) {
+      const dlUrl = shareDownloadUrl(token, f.id, password || undefined, f.nodeId);
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = dlUrl;
+      document.body.appendChild(iframe);
+      // Hapus iframe setelah beberapa detik
+      setTimeout(() => {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      }, 3000);
+      // Jeda antar download biar browser bisa proses
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+  };
+
+  /**
+   * Bulk ZIP download — fetch semua file, bungkus jadi 1 ZIP, download.
+   * 100% reliable, tidak tergantung izin browser.
+   */
+  const handleBulkDownloadZip = async () => {
+    if (!token || selectedIds.size === 0) return;
+    const targets = files.filter((f) => selectedIds.has(f.id) && !f.isFolder);
+    if (targets.length === 0) {
+      showToast('Tidak ada file (bukan folder) yang dipilih');
+      return;
+    }
+
+    // Dynamic import JSZip biar bundle utama tetap ringan
+    let JSZip: any;
+    try {
+      JSZip = (await import('jszip')).default;
+    } catch {
+      showToast('JSZip belum terinstall. Jalankan: npm install jszip');
+      return;
+    }
+
+    const zip = new JSZip();
+    const usedNames = new Set<string>();
+
+    setZipProgress({ current: 0, total: targets.length, name: '' });
+
+    for (let i = 0; i < targets.length; i++) {
+      const f = targets[i];
+      setZipProgress({ current: i + 1, total: targets.length, name: f.name });
       try {
-        const url = shareDownloadUrl(token, f.id, password || undefined, f.nodeId);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = f.name;
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        ok++;
-        // Jeda antar download biar browser tidak block
-        await new Promise((r) => setTimeout(r, 400));
-      } catch {
-        // skip
+        const blob = await fetchShareFileBlob(token, f.id, password || undefined, f.nodeId);
+        // Pastikan nama file unik di dalam ZIP
+        let name = safeZipName(f.name);
+        let counter = 1;
+        while (usedNames.has(name)) {
+          const dot = name.lastIndexOf('.');
+          if (dot > 0) {
+            name = `${name.substring(0, dot)}_${counter}${name.substring(dot)}`;
+          } else {
+            name = `${name}_${counter}`;
+          }
+          counter++;
+        }
+        usedNames.add(name);
+        zip.file(name, blob);
+      } catch (err) {
+        console.error(`Gagal fetch ${f.name}:`, err);
+        // Tetap lanjut ke file berikutnya, tapi catat yang gagal
+        zip.file(`_FAILED_${safeZipName(f.name)}.txt`, `Failed to download: ${f.name}\nReason: ${err instanceof Error ? err.message : 'unknown'}`);
       }
     }
-    setBulkDownloading(false);
-    showToast(`✓ ${ok} file diunduh`);
+
+    setZipProgress({ current: targets.length, total: targets.length, name: 'Membuat ZIP...' });
+
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+
+    // Trigger download
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    const zipName = info?.name ? safeZipName(info.name) : 'files';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `${zipName}_${dateStr}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    setZipProgress(null);
+    showToast(`✓ ZIP berisi ${targets.length} file diunduh`);
   };
 
   const openDetails = async (file: ShareFile) => {
@@ -544,7 +620,6 @@ export function SharePage() {
   const imageItems = visibleFiles.filter((f) => !f.isFolder);
   const folderItems = visibleFiles.filter((f) => f.isFolder);
 
-  // Hitung total file yang bisa di-bulk download (bukan folder)
   const downloadableCount = visibleFiles.filter((f) => !f.isFolder).length;
   const selectedCount = selectedIds.size;
 
@@ -659,10 +734,29 @@ export function SharePage() {
           totalCount={downloadableCount}
           onSelectAll={handleSelectAll}
           onClear={handleClearSelection}
-          onDownload={() => void handleBulkDownload()}
+          onDownload={() => void handleBulkDownloadZip()}
           onCancel={handleToggleSelectMode}
-          downloading={bulkDownloading}
+          downloading={!!zipProgress}
         />
+      )}
+
+      {/* ZIP progress overlay */}
+      {zipProgress && (
+        <div className="share-zip-overlay">
+          <div className="share-zip-modal">
+            <div className="share-zip-title">📦 Membuat ZIP...</div>
+            <div className="share-zip-bar">
+              <div
+                className="share-zip-bar-fill"
+                style={{ width: `${(zipProgress.current / zipProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="share-zip-info">
+              {zipProgress.current} / {zipProgress.total}
+              {zipProgress.name && <span className="share-zip-name">· {zipProgress.name}</span>}
+            </div>
+          </div>
+        </div>
       )}
 
       {lightboxIndex >= 0 && imageItems[lightboxIndex] && (

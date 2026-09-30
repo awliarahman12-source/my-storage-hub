@@ -1,6 +1,7 @@
 // Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
 // + Tahap 1-4 editor + Custom Slug + Subfolder nav in items + Folder preview + Thumb fix
 // + Absolute shareBase URL (fix: thumbnail/stream/download lewat Vercel 404)
+// + Fix: Content-Disposition header crash untuk filename unicode/emoji (ByteString error)
 import {
   getEnv,
   getSupabase,
@@ -60,6 +61,23 @@ interface SessionInfo {
 
 function getClientId(): string { return getEnv("GOOGLE_CLIENT_ID"); }
 function getClientSecret(): string { return getEnv("GOOGLE_CLIENT_SECRET"); }
+
+/**
+ * Encode filename untuk Content-Disposition header.
+ * ASCII aman → pakai filename="..." biasa.
+ * Ada unicode/emoji → pakai filename*=UTF-8''... (RFC 5987) + fallback ASCII.
+ */
+function encodeContentDisposition(filename: string, opts?: { inline?: boolean }): string {
+  const disp = opts?.inline ? "inline" : "attachment";
+  const cleaned = filename.replace(/[\r\n"\\]/g, "_");
+  const isAscii = /^[\x20-\x7E]*$/.test(cleaned);
+  if (isAscii) {
+    return `${disp}; filename="${cleaned}"`;
+  }
+  const asciiFallback = cleaned.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "_");
+  const encoded = encodeURIComponent(cleaned);
+  return `${disp}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
 
 async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
   let lastRes: Response | null = null;
@@ -778,7 +796,7 @@ Deno.serve(async (req: Request) => {
           if (!res.ok) throw new HttpError(res.status, "Export failed");
           const outHeaders = new Headers(ch);
           outHeaders.set("Content-Type", exportType);
-          outHeaders.set("Content-Disposition", `inline; filename="${fileMeta.name}.pdf"`);
+          outHeaders.set("Content-Disposition", encodeContentDisposition(`${fileMeta.name}.pdf`, { inline: true }));
           outHeaders.set("Cache-Control", "public, max-age=3600");
           return new Response(res.body, { headers: outHeaders });
         }
@@ -809,7 +827,7 @@ Deno.serve(async (req: Request) => {
         void supabase.from("share_links").update({ download_count: share.download_count + 1 }).eq("id", share.id);
         const headers = new Headers(ch);
         headers.set("Content-Type", fileMeta.mimeType || "application/octet-stream");
-        headers.set("Content-Disposition", `attachment; filename="${fileMeta.name}"`);
+        headers.set("Content-Disposition", encodeContentDisposition(fileMeta.name));
         return new Response(res.body, { headers });
       }
 
@@ -1251,7 +1269,7 @@ Deno.serve(async (req: Request) => {
       if (!res.ok) throw new HttpError(res.status, `Download failed`);
       const headers = new Headers(ch);
       headers.set("Content-Type", file.mimeType || "application/octet-stream");
-      headers.set("Content-Disposition", `attachment; filename="${file.name}"`);
+      headers.set("Content-Disposition", encodeContentDisposition(file.name));
       return new Response(res.body, { headers });
     }
 

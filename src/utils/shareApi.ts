@@ -162,7 +162,6 @@ export interface ShareFile {
   streamUrl: string | null;
   downloadUrl: string | null;
   previewThumbs?: { id: string; thumbnailUrl: string }[] | null;
-  previewThumbs?: { id: string; thumbnailUrl: string }[] | null;
   comments: number;
 }
 
@@ -201,6 +200,21 @@ export function shareDownloadUrl(token: string, fileId: string, password?: strin
   if (nodeId) params.set('nodeId', nodeId);
   const qs = params.toString();
   return `${publicUrl()}/share/${token}/download/${fileId}${qs ? `?${qs}` : ''}`;
+}
+
+/**
+ * Fetch file bytes dari share link sebagai Blob.
+ * Dipakai untuk bulk ZIP download.
+ */
+export async function fetchShareFileBlob(
+  token: string,
+  fileId: string,
+  password?: string,
+  nodeId?: string,
+): Promise<Blob> {
+  const res = await fetch(shareDownloadUrl(token, fileId, password, nodeId), { credentials: 'omit' });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  return await res.blob();
 }
 
 export interface ShareComment {
