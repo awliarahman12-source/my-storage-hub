@@ -1,5 +1,6 @@
 // Phase 15: DB search + Analytics + API Keys + Webhooks + Share Links (multi-item) + Cross-drive
-// + Tahap 1-4 editor + Custom Slug + Subfolder nav in items + Folder preview
+// + Tahap 1-4 editor + Custom Slug + Subfolder nav in items + Folder preview + Thumb fix
+// + Absolute shareBase URL (fix: thumbnail/stream/download lewat Vercel 404)
 import {
   getEnv,
   getSupabase,
@@ -60,8 +61,6 @@ interface SessionInfo {
 function getClientId(): string { return getEnv("GOOGLE_CLIENT_ID"); }
 function getClientSecret(): string { return getEnv("GOOGLE_CLIENT_SECRET"); }
 
-// ============ Retry helper ============
-
 async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
   let lastRes: Response | null = null;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -113,8 +112,6 @@ async function getValidAccessToken(node: StorageNodeRow): Promise<string> {
   }
   return node.access_token;
 }
-
-// ============ Cross-drive helpers ============
 
 const GOOGLE_APPS_PREFIX = "application/vnd.google-apps.";
 const MAX_CROSS_DRIVE_BYTES = 100 * 1024 * 1024;
@@ -188,8 +185,6 @@ async function uploadToDrive(destToken: string, filename: string, mimeType: stri
   if (!res.ok) throw new Error(`Multipart upload failed (${res.status})`);
   return await res.json() as DriveFile;
 }
-
-// ============ Storage helpers ============
 
 async function fetchDriveFiles(node: StorageNodeRow, query: string, pageSize: number, pageToken?: string, orderBy?: string) {
   const token = await getValidAccessToken(node);
@@ -293,8 +288,6 @@ function publicFile(file: DriveFile, node: StorageNodeRow) {
   };
 }
 
-// ============ API Key helpers ============
-
 async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
@@ -318,8 +311,6 @@ function generateShareToken(): string {
   for (let i = 0; i < arr.length; i++) result += chars[arr[i] % chars.length];
   return result;
 }
-
-// ============ Webhook helpers ============
 
 async function signWebhookPayload(secret: string, body: string): Promise<string> {
   const enc = new TextEncoder();
@@ -354,8 +345,6 @@ async function dispatchWebhook(supabase: ReturnType<typeof getSupabase>, eventTy
   } catch { /* best-effort */ }
 }
 
-// ============ Share helpers ============
-
 interface ShareRow {
   id: string;
   token: string;
@@ -389,32 +378,18 @@ interface ShareItemRow {
 
 function publicShare(s: ShareRow) {
   return {
-    id: s.id,
-    token: s.token,
-    custom_slug: s.custom_slug || null,
-    name: s.name,
-    kind: s.kind,
-    node_id: s.node_id,
-    folder_id: s.folder_id,
-    file_id: s.file_id,
-    role: s.role,
-    has_password: !!s.password_hash,
-    expires_at: s.expires_at,
-    max_downloads: s.max_downloads,
-    download_count: s.download_count,
-    view_count: s.view_count,
-    revoked: s.revoked,
-    created_at: s.created_at,
-    updated_at: s.updated_at,
+    id: s.id, token: s.token, custom_slug: s.custom_slug || null,
+    name: s.name, kind: s.kind, node_id: s.node_id,
+    folder_id: s.folder_id, file_id: s.file_id, role: s.role,
+    has_password: !!s.password_hash, expires_at: s.expires_at,
+    max_downloads: s.max_downloads, download_count: s.download_count,
+    view_count: s.view_count, revoked: s.revoked,
+    created_at: s.created_at, updated_at: s.updated_at,
   };
 }
 
 async function loadShareByToken(supabase: ReturnType<typeof getSupabase>, token: string): Promise<ShareRow | null> {
-  const { data, error } = await supabase
-    .from("share_links")
-    .select("*")
-    .eq("token", token)
-    .maybeSingle();
+  const { data, error } = await supabase.from("share_links").select("*").eq("token", token).maybeSingle();
   if (error || !data) return null;
   return data as ShareRow;
 }
@@ -422,11 +397,7 @@ async function loadShareByToken(supabase: ReturnType<typeof getSupabase>, token:
 async function loadShareByTokenOrSlug(supabase: ReturnType<typeof getSupabase>, tokenOrSlug: string): Promise<ShareRow | null> {
   const share = await loadShareByToken(supabase, tokenOrSlug);
   if (share) return share;
-  const { data } = await supabase
-    .from("share_links")
-    .select("*")
-    .eq("custom_slug", tokenOrSlug)
-    .maybeSingle();
+  const { data } = await supabase.from("share_links").select("*").eq("custom_slug", tokenOrSlug).maybeSingle();
   return data as ShareRow | null;
 }
 
@@ -442,11 +413,7 @@ async function verifySharePw(s: ShareRow, password: string | null): Promise<bool
   return hash === s.password_hash;
 }
 
-async function isFolderWithinShare(
-  node: StorageNodeRow,
-  folderId: string,
-  shareFolderId: string,
-): Promise<boolean> {
+async function isFolderWithinShare(node: StorageNodeRow, folderId: string, shareFolderId: string): Promise<boolean> {
   if (!folderId) return false;
   if (folderId === shareFolderId) return true;
   if (folderId === "root") return shareFolderId === "root";
@@ -459,47 +426,26 @@ async function isFolderWithinShare(
       if (parent === shareFolderId) return true;
       if (parent === "root") return shareFolderId === "root";
       current = parent;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
   return false;
 }
 
-async function isFileInShareItems(
-  supabase: ReturnType<typeof getSupabase>,
-  shareId: string,
-  fileId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("share_items")
-    .select("id")
-    .eq("share_link_id", shareId)
-    .eq("file_id", fileId)
-    .maybeSingle();
+async function isFileInShareItems(supabase: ReturnType<typeof getSupabase>, shareId: string, fileId: string): Promise<boolean> {
+  const { data } = await supabase.from("share_items").select("id").eq("share_link_id", shareId).eq("file_id", fileId).maybeSingle();
   return !!data;
 }
 
-async function notifyEditorAction(
-  supabase: ReturnType<typeof getSupabase>,
-  eventType: string,
-  share: ShareRow,
-  detail: Record<string, unknown>,
-) {
+async function notifyEditorAction(supabase: ReturnType<typeof getSupabase>, eventType: string, share: ShareRow, detail: Record<string, unknown>) {
   try {
     await dispatchWebhook(supabase, eventType, {
-      shareToken: share.token,
-      shareId: share.id,
-      shareName: share.name,
-      role: share.role,
-      timestamp: new Date().toISOString(),
-      ...detail,
+      shareToken: share.token, shareId: share.id, shareName: share.name,
+      role: share.role, timestamp: new Date().toISOString(), ...detail,
     });
   } catch { /* best-effort */ }
 }
 
 const uploadRateMap = new Map<string, number[]>();
-
 function checkUploadRate(token: string, maxPerMinute = 10): boolean {
   const now = Date.now();
   const windowMs = 60 * 1000;
@@ -510,31 +456,26 @@ function checkUploadRate(token: string, maxPerMinute = 10): boolean {
   return true;
 }
 
-// Helper: fetch preview thumbs (up to 4 images) inside a folder
-async function fetchFolderPreviewThumbs(
-  node: StorageNodeRow,
-  folderId: string,
-  shareToken: string,
-  pw: string | null,
-): Promise<{ id: string; thumbnailUrl: string }[]> {
+async function fetchFolderPreviewThumbs(node: StorageNodeRow, folderId: string, shareBase: string, pw: string | null): Promise<{ id: string; thumbnailUrl: string }[]> {
   try {
-    // Ambil file apapun yang punya thumbnail (image + video + PDF)
-    const q = `'${folderId}' in parents and trashed = false`;
-    const r = await fetchDriveFiles(node, q, 12, undefined, "name");
-    const withThumb = (r.files || [])
-      .filter((f: DriveFile) => f.thumbnailLink && f.mimeType !== "application/vnd.google-apps.folder")
-      .slice(0, 4);
-    return withThumb.map((f: DriveFile) => ({
-      id: f.id,
-      thumbnailUrl: `/functions/v1/drive-ops/share/${shareToken}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-    }));
+    const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
+    const fetchPromise = (async () => {
+      const q = `'${folderId}' in parents and trashed = false`;
+      const r = await fetchDriveFiles(node, q, 12, undefined, "name");
+      const withThumb = (r.files || [])
+        .filter((f: DriveFile) => f.thumbnailLink && f.mimeType !== "application/vnd.google-apps.folder")
+        .slice(0, 4);
+      return withThumb.map((f: DriveFile) => ({
+        id: f.id,
+        thumbnailUrl: `${shareBase}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+      }));
+    })();
+    return await Promise.race([fetchPromise, timeoutPromise]);
   } catch (err) {
     console.error("fetchFolderPreviewThumbs failed:", err instanceof Error ? err.message : String(err));
     return [];
   }
 }
-
-// ============ Main handler ============
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
@@ -561,6 +502,7 @@ Deno.serve(async (req: Request) => {
       if (!share) throw new HttpError(404, "Not found");
 
       const token = share.token;
+      const shareBase = `${url.origin}/functions/v1/drive-ops/share/${tokenOrSlug}`;
 
       if (rest.length === 0 && req.method === "GET") {
         return new Response(JSON.stringify({
@@ -591,12 +533,9 @@ Deno.serve(async (req: Request) => {
 
       if (rest[0] === "files" && req.method === "GET") {
         if (share.kind === "items") {
-          // SUBFOLDER NAVIGATION
           const pathParam = url.searchParams.get("path") || "";
           if (pathParam) {
-            const { data: allItems } = await supabase
-              .from("share_items").select("*").eq("share_link_id", share.id);
-
+            const { data: allItems } = await supabase.from("share_items").select("*").eq("share_link_id", share.id);
             const targetItem = (allItems || []).find((it: ShareItemRow) => it.file_id === pathParam);
             if (!targetItem) throw new HttpError(404, "Folder not in share");
             if ((targetItem.mime_type || "") !== "application/vnd.google-apps.folder") throw new HttpError(400, "Not a folder");
@@ -608,83 +547,62 @@ Deno.serve(async (req: Request) => {
             const fileIds = (result.files || []).map((f: DriveFile) => f.id);
             const commentCounts: Record<string, number> = {};
             if (fileIds.length > 0) {
-              const { data: comments } = await supabase
-                .from("share_comments").select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
+              const { data: comments } = await supabase.from("share_comments").select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
               if (comments) for (const c of comments) commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
             }
 
-            // Fetch preview thumbs for subfolders
             const subFolders = (result.files || []).filter((f: DriveFile) => f.mimeType === "application/vnd.google-apps.folder");
             const subPreviewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
             for (const sf of subFolders) {
-              subPreviewMap.set(sf.id, await fetchFolderPreviewThumbs(folderNode, sf.id, token, pw));
+              subPreviewMap.set(sf.id, await fetchFolderPreviewThumbs(folderNode, sf.id, shareBase, pw));
             }
 
             const subFiles = (result.files || []).map((f: DriveFile) => {
               const type = mapFileType(f.mimeType);
-              const canPreview =
-                type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" ||
-                f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
-                f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+              const canPreview = type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" ||
+                f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
                 f.mimeType.startsWith("application/vnd.google-apps.");
               const previewKind = computePreviewKind(type, f.mimeType);
-
               const subQs = new URLSearchParams();
               subQs.set("nodeId", targetItem.node_id);
               if (pw) subQs.set("pw", pw);
-
               return {
-                id: f.id,
-                nodeId: targetItem.node_id,
-                name: f.name,
-                type,
-                mimeType: f.mimeType,
+                id: f.id, nodeId: targetItem.node_id, name: f.name, type, mimeType: f.mimeType,
                 size: f.size ? Number(f.size) : 0,
                 sizeLabel: f.size ? formatFileSize(Number(f.size)) : "—",
                 modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
-                modifiedRaw: f.modifiedTime || null,
-                isFolder: type === "folder",
-                canPreview,
-                previewKind,
+                modifiedRaw: f.modifiedTime || null, isFolder: type === "folder", canPreview, previewKind,
                 driveName: folderNode.display_name || folderNode.email,
-                thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/thumb/${f.id}?${subQs.toString()}`,
-                streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/stream/${f.id}?${subQs.toString()}`,
-                downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/download/${f.id}?${subQs.toString()}`,
+                thumbnailUrl: type === "folder" ? null : `${shareBase}/thumb/${f.id}?${subQs.toString()}`,
+                streamUrl: type === "folder" ? null : `${shareBase}/stream/${f.id}?${subQs.toString()}`,
+                downloadUrl: type === "folder" ? null : `${shareBase}/download/${f.id}?${subQs.toString()}`,
                 previewThumbs: type === "folder" ? (subPreviewMap.get(f.id) || []) : undefined,
                 comments: commentCounts[f.id] || 0,
               };
             });
 
             const breadcrumbs = [{ id: pathParam, name: targetItem.file_name }];
-            return new Response(JSON.stringify({ files: subFiles, breadcrumbs }), {
-              headers: { ...ch, "Content-Type": "application/json" },
-            });
+            return new Response(JSON.stringify({ files: subFiles, breadcrumbs }), { headers: { ...ch, "Content-Type": "application/json" } });
           }
-          // END SUBFOLDER NAVIGATION
 
-          const { data: items, error: itemsErr } = await supabase
-            .from("share_items").select("*").eq("share_link_id", share.id);
+          const { data: items, error: itemsErr } = await supabase.from("share_items").select("*").eq("share_link_id", share.id);
           if (itemsErr) throw new Error("Failed to fetch share items");
 
           const fileIds = (items || []).map((it: ShareItemRow) => it.file_id);
           const commentCounts: Record<string, number> = {};
           if (fileIds.length > 0) {
-            const { data: comments } = await supabase.from("share_comments")
-              .select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
+            const { data: comments } = await supabase.from("share_comments").select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
             if (comments) for (const c of comments) commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
           }
 
           const allNodes = await getAllStorageNodes(supabase);
           const nodeMap = new Map(allNodes.map((n) => [n.id, n]));
 
-          // Folder preview thumbs
           const previewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
           for (const it of (items || [])) {
             if ((it.mime_type || "") === "application/vnd.google-apps.folder") {
               const itemNode = nodeMap.get(it.node_id);
-              if (itemNode) {
-                previewMap.set(it.file_id, await fetchFolderPreviewThumbs(itemNode, it.file_id, token, pw));
-              }
+              if (itemNode) previewMap.set(it.file_id, await fetchFolderPreviewThumbs(itemNode, it.file_id, shareBase, pw));
             }
           }
 
@@ -695,8 +613,7 @@ Deno.serve(async (req: Request) => {
             const type = isFolderItem ? "folder" : mapFileType(mime);
             const canPreview = !isFolderItem && (
               type === "img" || type === "video" || type === "audio" || type === "pdf" ||
-              mime.startsWith("text/") || mime.includes("json") ||
-              mime.includes("xml") || mime.includes("markdown") ||
+              mime.startsWith("text/") || mime.includes("json") || mime.includes("xml") || mime.includes("markdown") ||
               mime.startsWith("application/vnd.google-apps.")
             );
             const previewKind = isFolderItem ? "folder" : computePreviewKind(type, mime);
@@ -708,9 +625,9 @@ Deno.serve(async (req: Request) => {
               size: Number(it.size || 0), sizeLabel: isFolderItem ? "—" : formatFileSize(Number(it.size || 0)),
               modified: "—", modifiedRaw: null, isFolder: isFolderItem, canPreview, previewKind,
               driveName: itemNode?.display_name || itemNode?.email || "Drive",
-              thumbnailUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/thumb/${it.file_id}?${qs.toString()}`,
-              streamUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/stream/${it.file_id}?${qs.toString()}`,
-              downloadUrl: isFolderItem ? null : `/functions/v1/drive-ops/share/${token}/download/${it.file_id}?${qs.toString()}`,
+              thumbnailUrl: isFolderItem ? null : `${shareBase}/thumb/${it.file_id}?${qs.toString()}`,
+              streamUrl: isFolderItem ? null : `${shareBase}/stream/${it.file_id}?${qs.toString()}`,
+              downloadUrl: isFolderItem ? null : `${shareBase}/download/${it.file_id}?${qs.toString()}`,
               previewThumbs: isFolderItem ? (previewMap.get(it.file_id) || []) : undefined,
               comments: commentCounts[it.file_id] || 0,
             };
@@ -724,8 +641,7 @@ Deno.serve(async (req: Request) => {
             const f = await getDriveFile(node, share.file_id);
             const type = mapFileType(f.mimeType);
             const canPreview = type === "img" || type === "video" || type === "audio" || type === "pdf" ||
-              f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
-              f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+              f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
               f.mimeType.startsWith("application/vnd.google-apps.");
             const previewKind = computePreviewKind(type, f.mimeType);
             const fileObj = {
@@ -735,18 +651,15 @@ Deno.serve(async (req: Request) => {
               modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
               modifiedRaw: f.modifiedTime || null, isFolder: false, canPreview, previewKind,
               driveName: node.display_name || node.email,
-              thumbnailUrl: `/functions/v1/drive-ops/share/${token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-              streamUrl: `/functions/v1/drive-ops/share/${token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-              downloadUrl: `/functions/v1/drive-ops/share/${token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              thumbnailUrl: `${shareBase}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              streamUrl: `${shareBase}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+              downloadUrl: `${shareBase}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
               comments: 0,
             };
             return new Response(JSON.stringify({ files: [fileObj], breadcrumbs: [] }), { headers: { ...ch, "Content-Type": "application/json" } });
-          } catch (err) {
-            throw new HttpError(404, "File not found");
-          }
+          } catch { throw new HttpError(404, "File not found"); }
         }
 
-        // KIND = FOLDER
         const folderId = url.searchParams.get("path") || share.folder_id || "root";
         const query = folderId === "root" ? "'root' in parents and trashed = false" : `'${folderId}' in parents and trashed = false`;
         const result = await fetchDriveFiles(node, query, 200, undefined, "folder,name");
@@ -754,36 +667,29 @@ Deno.serve(async (req: Request) => {
         const fileIds = (result.files || []).map((f: DriveFile) => f.id);
         const commentCounts: Record<string, number> = {};
         if (fileIds.length > 0) {
-          const { data: comments } = await supabase.from("share_comments")
-            .select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
+          const { data: comments } = await supabase.from("share_comments").select("file_id").eq("share_link_id", share.id).in("file_id", fileIds);
           if (comments) for (const c of comments) commentCounts[c.file_id] = (commentCounts[c.file_id] || 0) + 1;
         }
 
-        // FOLDER PREVIEW: fetch thumbs for all subfolders
         const subFolderIds = (result.files || [])
           .filter((f: DriveFile) => f.mimeType === "application/vnd.google-apps.folder")
+          .slice(0, 4)
           .map((f: DriveFile) => f.id);
 
         const previewMap = new Map<string, { id: string; thumbnailUrl: string }[]>();
-
         if (subFolderIds.length > 0) {
-          const BATCH = 5;
+          const BATCH = 2;
           for (let i = 0; i < subFolderIds.length; i += BATCH) {
             const batch = subFolderIds.slice(i, i + BATCH);
-            const results = await Promise.all(
-              batch.map((sfId) => fetchFolderPreviewThumbs(node, sfId, token, pw))
-            );
-            for (let j = 0; j < batch.length; j++) {
-              previewMap.set(batch[j], results[j]);
-            }
+            const results = await Promise.all(batch.map((sfId) => fetchFolderPreviewThumbs(node, sfId, shareBase, pw)));
+            for (let j = 0; j < batch.length; j++) previewMap.set(batch[j], results[j]);
           }
         }
 
         const files = (result.files || []).map((f: DriveFile) => {
           const type = mapFileType(f.mimeType);
           const canPreview = type === "folder" || type === "img" || type === "video" || type === "audio" || type === "pdf" ||
-            f.mimeType.startsWith("text/") || f.mimeType.includes("json") ||
-            f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
+            f.mimeType.startsWith("text/") || f.mimeType.includes("json") || f.mimeType.includes("xml") || f.mimeType.includes("markdown") ||
             f.mimeType.startsWith("application/vnd.google-apps.");
           const previewKind = computePreviewKind(type, f.mimeType);
           return {
@@ -793,9 +699,9 @@ Deno.serve(async (req: Request) => {
             modified: f.modifiedTime ? formatDate(f.modifiedTime) : "—",
             modifiedRaw: f.modifiedTime || null, isFolder: type === "folder", canPreview, previewKind,
             driveName: node.display_name || node.email,
-            thumbnailUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-            streamUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
-            downloadUrl: type === "folder" ? null : `/functions/v1/drive-ops/share/${token}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+            thumbnailUrl: type === "folder" ? null : `${shareBase}/thumb/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+            streamUrl: type === "folder" ? null : `${shareBase}/stream/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
+            downloadUrl: type === "folder" ? null : `${shareBase}/download/${f.id}${pw ? `?pw=${encodeURIComponent(pw)}` : ""}`,
             previewThumbs: type === "folder" ? (previewMap.get(f.id) || []) : undefined,
             comments: commentCounts[f.id] || 0,
           };
@@ -818,28 +724,43 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify(publicFile(file, node)), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
+      // ============ THUMB (PATCHED) ============
       if (rest[0] === "thumb" && rest[1] && req.method === "GET") {
         const fileId = rest[1];
         const nodeIdParam = url.searchParams.get("nodeId");
         const effectiveNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
         const token2 = await getValidAccessToken(effectiveNode);
         const fileMeta = await getDriveFile(effectiveNode, fileId);
+
         if (fileMeta.thumbnailLink) {
-          const imgRes = await fetch(fileMeta.thumbnailLink);
-          if (imgRes.ok) {
-            const headers = new Headers(ch);
-            headers.set("Content-Type", imgRes.headers.get("Content-Type") || "image/jpeg");
-            headers.set("Cache-Control", "public, max-age=3600");
-            return new Response(imgRes.body, { headers });
-          }
+          try {
+            const imgRes = await fetch(fileMeta.thumbnailLink);
+            const ct = imgRes.headers.get("Content-Type") || "";
+            if (imgRes.ok && ct.startsWith("image/")) {
+              const headers = new Headers(ch);
+              headers.set("Content-Type", ct);
+              headers.set("Cache-Control", "public, max-age=300");
+              return new Response(imgRes.body, { headers });
+            }
+          } catch { /* fallback */ }
         }
+
         const fullRes = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { Authorization: `Bearer ${token2}` },
         });
         if (!fullRes.ok) throw new HttpError(fullRes.status, "Failed");
+
+        const fullCt = fileMeta.mimeType || "image/jpeg";
+        if (!fullCt.startsWith("image/")) {
+          return new Response(JSON.stringify({ error: "Not an image" }), {
+            status: 404,
+            headers: { ...ch, "Content-Type": "application/json" },
+          });
+        }
+
         const headers = new Headers(ch);
-        headers.set("Content-Type", fileMeta.mimeType || "image/jpeg");
-        headers.set("Cache-Control", "public, max-age=3600");
+        headers.set("Content-Type", fullCt);
+        headers.set("Cache-Control", "public, max-age=300");
         return new Response(fullRes.body, { headers });
       }
 
@@ -853,10 +774,7 @@ Deno.serve(async (req: Request) => {
         if (fileMeta.mimeType.startsWith("application/vnd.google-apps.")) {
           if (fileMeta.mimeType === "application/vnd.google-apps.folder") throw new HttpError(400, "Cannot preview folder");
           const exportType = "application/pdf";
-          const res = await fetchWithRetry(
-            `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportType)}`,
-            { headers: { Authorization: `Bearer ${token2}` } },
-          );
+          const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportType)}`, { headers: { Authorization: `Bearer ${token2}` } });
           if (!res.ok) throw new HttpError(res.status, "Export failed");
           const outHeaders = new Headers(ch);
           outHeaders.set("Content-Type", exportType);
@@ -884,13 +802,9 @@ Deno.serve(async (req: Request) => {
         const nodeIdParam = url.searchParams.get("nodeId");
         const effectiveNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
         const fileMeta = await getDriveFile(effectiveNode, fileId);
-        if (share.max_downloads && share.download_count >= share.max_downloads) {
-          throw new HttpError(429, "Download limit reached");
-        }
+        if (share.max_downloads && share.download_count >= share.max_downloads) throw new HttpError(429, "Download limit reached");
         const token2 = await getValidAccessToken(effectiveNode);
-        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { Authorization: `Bearer ${token2}` },
-        });
+        const res = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token2}` } });
         if (!res.ok) throw new HttpError(res.status, "Failed");
         void supabase.from("share_links").update({ download_count: share.download_count + 1 }).eq("id", share.id);
         const headers = new Headers(ch);
@@ -903,70 +817,49 @@ Deno.serve(async (req: Request) => {
         if (share.role !== "editor") throw new HttpError(403, "Only editors can upload");
         if (share.kind !== "folder") throw new HttpError(400, "Upload only supported for folder shares");
         if (!checkUploadRate(share.token, 10)) throw new HttpError(429, "Terlalu banyak upload. Tunggu sebentar.");
-
         const form = await req.formData();
         const file = form.get("file") as File | null;
         const parentFolderIdRaw = (form.get("parentFolderId") as string) || "";
         const parentFolderId = parentFolderIdRaw || share.folder_id || "root";
-
         if (!file) throw new HttpError(400, "No file provided");
         if (file.size > 500 * 1024 * 1024) throw new HttpError(413, "File too large (max 500 MB)");
-
         const shareRoot = share.folder_id || "root";
         const inScope = await isFolderWithinShare(node, parentFolderId, shareRoot);
         if (!inScope) throw new HttpError(403, "Target folder is outside the share scope");
-
         const accessToken = await getValidAccessToken(node);
         const uploaded = await uploadToDrive(accessToken, file.name, file.type || "application/octet-stream", parentFolderId, file);
-
         void supabase.from("activity_logs").insert({
           event_type: "share_upload", filename: file.name,
           storage_node_id: node.id, storage_node_name: node.display_name || node.email,
           status: "success", message: `Editor uploaded ${file.name} via share link`,
         });
-
         void notifyEditorAction(supabase, "share.uploaded", share, {
           fileId: uploaded.id, fileName: uploaded.name, mimeType: uploaded.mimeType,
           size: Number(uploaded.size || 0), nodeId: node.id,
         });
-
         return new Response(JSON.stringify({ success: true, file: publicFile(uploaded, node) }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
       if (rest[0] === "folder" && req.method === "POST") {
         if (share.role !== "editor") throw new HttpError(403, "Only editors can create folders");
         if (share.kind !== "folder") throw new HttpError(400, "Folder creation only supported for folder shares");
-
         const body = await req.json();
         const name = body.name;
         const parentFolderIdRaw = body.parentFolderId || "";
         const parentFolderId = parentFolderIdRaw || share.folder_id || "root";
-
-        if (!name || typeof name !== "string" || name.trim().length === 0 || name.length > 200) {
-          throw new HttpError(400, "Valid folder name required (max 200 chars)");
-        }
-
+        if (!name || typeof name !== "string" || name.trim().length === 0 || name.length > 200) throw new HttpError(400, "Valid folder name required (max 200 chars)");
         const shareRoot = share.folder_id || "root";
         const inScope = await isFolderWithinShare(node, parentFolderId, shareRoot);
         if (!inScope) throw new HttpError(403, "Target folder is outside the share scope");
-
         const accessToken = await getValidAccessToken(node);
         const res = await fetchWithRetry("https://www.googleapis.com/drive/v3/files", {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim(),
-            mimeType: "application/vnd.google-apps.folder",
-            parents: [parentFolderId && parentFolderId !== "root" ? parentFolderId : "root"],
-          }),
+          body: JSON.stringify({ name: name.trim(), mimeType: "application/vnd.google-apps.folder", parents: [parentFolderId && parentFolderId !== "root" ? parentFolderId : "root"] }),
         });
         if (!res.ok) throw new HttpError(res.status, "Create folder failed");
         const folder = await res.json();
-
-        void notifyEditorAction(supabase, "share.folder_created", share, {
-          folderId: folder.id, folderName: folder.name, parentId: parentFolderId, nodeId: node.id,
-        });
-
+        void notifyEditorAction(supabase, "share.folder_created", share, { folderId: folder.id, folderName: folder.name, parentId: parentFolderId, nodeId: node.id });
         return new Response(JSON.stringify({ success: true, folder: publicFile(folder, node) }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
@@ -977,9 +870,7 @@ Deno.serve(async (req: Request) => {
         const newName = body.newName;
         const nodeIdParam = body.nodeId || url.searchParams.get("nodeId");
         if (!fileId) throw new HttpError(400, "fileId required");
-        if (!newName || typeof newName !== "string" || newName.trim().length === 0 || newName.length > 255) {
-          throw new HttpError(400, "Valid newName required (max 255 chars)");
-        }
+        if (!newName || typeof newName !== "string" || newName.trim().length === 0 || newName.length > 255) throw new HttpError(400, "Valid newName required (max 255 chars)");
         const effNode = nodeIdParam ? await getStorageNode(supabase, nodeIdParam) : node;
         if (share.kind === "folder") {
           const inScope = await isFolderWithinShare(effNode, fileId, share.folder_id || "root");
@@ -1106,25 +997,18 @@ Deno.serve(async (req: Request) => {
       if (rest[0] === "comments" && req.method === "GET") {
         const fileId = url.searchParams.get("fileId");
         if (!fileId) throw new HttpError(400, "fileId required");
-        const { data, error } = await supabase
-          .from("share_comments").select("*")
-          .eq("share_link_id", share.id).eq("file_id", fileId)
-          .order("created_at", { ascending: true });
+        const { data, error } = await supabase.from("share_comments").select("*").eq("share_link_id", share.id).eq("file_id", fileId).order("created_at", { ascending: true });
         if (error) throw new Error("Failed to fetch comments");
         return new Response(JSON.stringify({ comments: data || [] }), { headers: { ...ch, "Content-Type": "application/json" } });
       }
 
       if (rest[0] === "comments" && req.method === "POST") {
-        if (share.role !== "commenter" && share.role !== "editor") {
-          throw new HttpError(403, "Only commenters and editors can post comments");
-        }
+        if (share.role !== "commenter" && share.role !== "editor") throw new HttpError(403, "Only commenters and editors can post comments");
         const body = await req.json();
         const fileId = body.fileId;
         const authorName = body.authorName || "Anonymous";
         const content = body.content;
-        if (!fileId || !content || typeof content !== "string" || content.length > 2000) {
-          throw new HttpError(400, "fileId and content required (max 2000 chars)");
-        }
+        if (!fileId || !content || typeof content !== "string" || content.length > 2000) throw new HttpError(400, "fileId and content required (max 2000 chars)");
         const { data, error } = await supabase.from("share_comments").insert({
           share_link_id: share.id, file_id: fileId,
           author_name: String(authorName).substring(0, 60),
@@ -1177,8 +1061,6 @@ Deno.serve(async (req: Request) => {
     const nodes = await getAllStorageNodes(supabase);
     const connectedNodes = nodes.filter((n) => n.status === "connected" && n.access_token && n.enabled !== false);
 
-    // ============ SHARE MANAGEMENT ============
-
     if (path === "/shares" && req.method === "GET") {
       const { data, error } = await supabase.from("share_links").select("*").order("created_at", { ascending: false });
       if (error) throw new Error("Failed to fetch shares");
@@ -1188,18 +1070,15 @@ Deno.serve(async (req: Request) => {
     if (path === "/shares" && req.method === "POST") {
       const body = await req.json();
       const { name, kind, nodeId, folderId, fileId, items, role, password, expiresInDays, maxDownloads, customSlug } = body;
-
       if (!role) throw new HttpError(400, "role required");
       if (!["viewer", "commenter", "editor"].includes(role)) throw new HttpError(400, "invalid role");
 
       let shareKind: string = kind || "file";
       let primaryNodeId: string | undefined = nodeId;
-
       if (Array.isArray(items) && items.length > 0) {
         if (items.length === 1) { shareKind = "file"; primaryNodeId = items[0].nodeId; }
         else { shareKind = "items"; primaryNodeId = items[0].nodeId; }
       }
-
       if (!primaryNodeId) throw new HttpError(400, "nodeId or items required");
       if (!["folder", "file", "items"].includes(shareKind)) throw new HttpError(400, "invalid kind");
 
@@ -1218,17 +1097,12 @@ Deno.serve(async (req: Request) => {
       }
 
       const insertRow: Record<string, unknown> = {
-        token,
-        name: String(name || "Shared").substring(0, 100),
-        kind: shareKind,
-        node_id: primaryNodeId,
+        token, name: String(name || "Shared").substring(0, 100),
+        kind: shareKind, node_id: primaryNodeId,
         folder_id: shareKind === "folder" ? (folderId || null) : null,
         file_id: shareKind === "file" ? (fileId || items?.[0]?.fileId || null) : null,
-        role,
-        password_hash,
-        expires_at,
-        max_downloads: maxDownloads || null,
-        custom_slug: slug,
+        role, password_hash, expires_at,
+        max_downloads: maxDownloads || null, custom_slug: slug,
       };
 
       const { data, error } = await supabase.from("share_links").insert(insertRow).select("*").single();
@@ -1272,8 +1146,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ share: publicShare(data as ShareRow) }), { headers: { ...ch, "Content-Type": "application/json" } });
     }
 
-    // ============ FILES ============
-
     if (path === "/files" && req.method === "GET") {
       requireScope("files:read");
       const folderId = url.searchParams.get("folderId") || "root";
@@ -1300,14 +1172,12 @@ Deno.serve(async (req: Request) => {
         if (typeFilter === "img") query += " and mimeType contains 'image/'";
         else if (typeFilter === "video") query += " and mimeType contains 'video/'";
         else if (typeFilter === "folder") query += " and mimeType = 'application/vnd.google-apps.folder'";
-
         try {
           const result = await fetchDriveFiles(node, query, pageSize, pageToken, orderBy);
           for (const f of result.files) allFiles.push(publicFile(f, node));
           if (result.nextPageToken) { nodePageTokens[node.id] = result.nextPageToken; hasMore = true; }
         } catch { /* skip */ }
       }
-
       return new Response(JSON.stringify({ files: allFiles, hasMore, pageTokens: hasMore ? nodePageTokens : undefined }), { headers: { ...ch, "Content-Type": "application/json" } });
     }
 
@@ -1631,8 +1501,6 @@ Deno.serve(async (req: Request) => {
       if (!res.ok && res.status !== 204) throw new HttpError(res.status, `Delete failed`);
       return new Response(JSON.stringify({ success: true }), { headers: { ...ch, "Content-Type": "application/json" } });
     }
-
-    // ============ ACTIVITY ============
 
     if (path === "/activity" && req.method === "POST") {
       const body = await req.json();

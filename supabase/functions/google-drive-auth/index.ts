@@ -1,4 +1,5 @@
 // Phase 9: Security hardening — session validation, OAuth state validation, security headers
+// Fix: DELETE /nodes/:id 401 — tambah logging + handle double-slash
 import {
   getEnv,
   getSupabase,
@@ -222,7 +223,12 @@ Deno.serve(async (req: Request) => {
   }
 
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/google-drive-auth/, "");
+  // Handle kemungkinan double-slash di depan path
+  const cleanPath = url.pathname.replace(/\/+/g, "/");
+  const path = cleanPath.replace(/^\/google-drive-auth/, "");
+
+  // Debug log untuk bantu diagnosa
+  console.log(`[google-drive-auth] ${req.method} ${path}`);
 
   try {
     // GET /google-drive-auth/auth — redirect to Google OAuth consent (public, no session needed)
@@ -275,7 +281,6 @@ Deno.serve(async (req: Request) => {
         return new Response(null, { status: 302, headers: { ...ch, ...sh, Location: redirectUrl } });
       }
 
-      // Validate OAuth state against cookie
       const cookieState = getCookie(req, "oauth_state");
       if (!cookieState || cookieState !== state) {
         const redirectUrl = `${getEnv("SUPABASE_URL")}/functions/v1/google-drive-auth/redirect?error=invalid_state`;
@@ -327,9 +332,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // All remaining endpoints require a valid session
+    // ============ Semua endpoint di bawah butuh session ============
     const session = await validateSession(req);
-    if (!session) return errorResponse(401, "Unauthorized", origin);
+    if (!session) {
+      // Log detail untuk diagnosa
+      console.warn(`[google-drive-auth] 401 on ${req.method} ${path}`, {
+        hasXsSessionToken: !!req.headers.get("X-Session-Token"),
+        hasXAuthToken: !!req.headers.get("X-Auth-Token"),
+        hasCookie: !!req.headers.get("Cookie"),
+        hasAuth: !!req.headers.get("Authorization"),
+      });
+      return errorResponse(401, "Unauthorized", origin);
+    }
 
     // GET /google-drive-auth/nodes — list all storage nodes
     if (path === "/nodes" && req.method === "GET") {
@@ -356,6 +370,7 @@ Deno.serve(async (req: Request) => {
       const supabase = getSupabase();
       await deleteStorageNode(supabase, nodeId);
 
+      console.log(`[google-drive-auth] Deleted node ${nodeId} by session ${session.id}`);
       return new Response(JSON.stringify({ success: true }), {
         headers: jsonHeaders(origin),
       });
@@ -501,7 +516,7 @@ Deno.serve(async (req: Request) => {
     if (err instanceof HttpError) {
       return errorResponse(err.status, err.message, origin);
     }
+    console.error("[google-drive-auth] Unhandled error:", err instanceof Error ? err.message : String(err));
     return errorResponse(500, "Internal server error", origin);
   }
 });
-

@@ -30,7 +30,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
     return {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token, X-Auth-Token",
       "Access-Control-Allow-Credentials": "true",
       "Vary": "Origin",
     };
@@ -38,7 +38,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-CSRF-Token, X-Session-Token, X-Auth-Token",
   };
 }
 
@@ -106,10 +106,32 @@ export interface SessionInfo {
   created_at: string;
 }
 
+/**
+ * Ambil session token dari berbagai sumber, dengan prioritas:
+ * 1. Header X-Session-Token (cara utama)
+ * 2. Header X-Auth-Token (fallback)
+ * 3. Cookie ms_session_token (fallback)
+ * 4. Query param `st` HANYA untuk /auth redirect (bukan untuk validasi)
+ */
+function extractSessionToken(req: Request): string | null {
+  const h1 = req.headers.get("X-Session-Token");
+  if (h1) return h1.trim();
+
+  const h2 = req.headers.get("X-Auth-Token");
+  if (h2) return h2.trim();
+
+  const c = getCookie(req, "ms_session_token");
+  if (c) return c.trim();
+
+  return null;
+}
+
 export async function validateSession(req: Request): Promise<SessionInfo | null> {
-  const token = req.headers.get("X-Session-Token");
-  // SECURITY: URL param `st` dihapus — session token tidak boleh di URL (bocor ke referrer/history)
-  if (!token) return null;
+  const token = extractSessionToken(req);
+  if (!token) {
+    console.warn("[validateSession] No session token found in header or cookie");
+    return null;
+  }
 
   const tokenHash = await sha256Hex(token);
   const supabase = getSupabase();
@@ -119,12 +141,25 @@ export async function validateSession(req: Request): Promise<SessionInfo | null>
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (error || !session) return null;
-  if (session.revoked) return null;
+  if (error) {
+    console.error("[validateSession] DB error:", error.message);
+    return null;
+  }
+  if (!session) {
+    console.warn("[validateSession] Session not found for token hash:", tokenHash.substring(0, 12) + "...");
+    return null;
+  }
+  if (session.revoked) {
+    console.warn("[validateSession] Session revoked:", session.id);
+    return null;
+  }
 
   const now = new Date();
   const expires = new Date(session.expires_at);
-  if (expires < now) return null;
+  if (expires < now) {
+    console.warn("[validateSession] Session expired:", session.id, "at", session.expires_at);
+    return null;
+  }
 
   return session as SessionInfo;
 }
@@ -167,7 +202,6 @@ export async function recordLoginAttempt(ip: string, success: boolean): Promise<
     success,
   });
 
-  // Cleanup old attempts (older than 1 hour)
   const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   await supabase.from("login_attempts").delete().lt("attempted_at", cutoff);
 }
@@ -252,10 +286,9 @@ export function validateNumber(value: unknown, field: string, min = 0, max = Inf
 }
 
 // ============ Password Hashing (PBKDF2) ============
-// Menggantikan SHA-256 yang terlalu cepat untuk password hashing
 
 const PBKDF2_ITERATIONS = 100_000;
-const PBKDF2_KEYLEN = 32; // 256-bit
+const PBKDF2_KEYLEN = 32;
 const PBKDF2_HASH = "SHA-256";
 
 function bytesToHex(arr: Uint8Array): string {
@@ -277,10 +310,6 @@ function constantTimeEq(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/**
- * Hash password dengan PBKDF2.
- * Format output: `pbkdf2$<iterations>$<salt-hex>$<hash-hex>`
- */
 export async function hashPassword(password: string): Promise<string> {
   const salt = new Uint8Array(16);
   crypto.getRandomValues(salt);
@@ -300,22 +329,14 @@ export async function hashPassword(password: string): Promise<string> {
   return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(new Uint8Array(bits))}`;
 }
 
-/**
- * Verifikasi password terhadap hash yang disimpan.
- * Support dua format:
- * - `pbkdf2$...` — format baru
- * - 64-char hex — legacy SHA-256 (untuk backward compat)
- */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (!stored) return false;
 
-  // Legacy SHA-256 (tanpa prefix pbkdf2$)
   if (!stored.startsWith("pbkdf2$")) {
     const legacyHash = await sha256Hex(password);
     return constantTimeEq(legacyHash, stored);
   }
 
-  // Format baru: pbkdf2$iterations$salt$hash
   const parts = stored.split("$");
   if (parts.length !== 4) return false;
 
@@ -342,9 +363,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return constantTimeEq(actualHex, expectedHex);
 }
 
-/**
- * Cek apakah hash menggunakan format lama (SHA-256) → perlu di-upgrade.
- */
 export function isLegacyHash(stored: string): boolean {
   return !!stored && !stored.startsWith("pbkdf2$");
 }
@@ -352,7 +370,6 @@ export function isLegacyHash(stored: string): boolean {
 // ============ Error Response ============
 
 export function errorResponse(status: number, _message: string, origin: string | null): Response {
-  // Sanitize error messages — don't leak internal details
   const safeMessages: Record<number, string> = {
     400: "Bad request",
     401: "Unauthorized",
@@ -367,6 +384,3 @@ export function errorResponse(status: number, _message: string, origin: string |
     headers: jsonHeaders(origin),
   });
 }
-
-
-
