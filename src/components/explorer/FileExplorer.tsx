@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { V3Icon } from '@/components/FileIcon';
-import { getDownloadUrl, fetchAllFolders, logActivity } from '@/utils/driveApi';
+import { getDownloadUrl, fetchAllFolders, logActivity, fetchFileBlob } from '@/utils/driveApi';
 import type { FolderEntry } from '@/utils/driveApi';
 import { ShareModal } from '@/components/modals/ShareModal';
 import { CreateShareModal } from '@/components/share/CreateShareModal';
@@ -30,6 +30,7 @@ import {
   Pencil,
   AlertTriangle,
   Info,
+  Package,
 } from 'lucide-react';
 
 type SortMode = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest' | 'size-largest' | 'size-smallest' | 'type';
@@ -44,6 +45,10 @@ const SORT_LABELS: Record<SortMode, string> = {
   'size-smallest': 'Size smallest',
   'type': 'Type',
 };
+
+function safeZipName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'file';
+}
 
 interface FileExplorerProps {
   onPreview: (file: DriveFileItem, list?: DriveFileItem[]) => void;
@@ -100,11 +105,11 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
   const [trashConfirm, setTrashConfirm] = useState<DriveFileItem[]>([]);
   const [shareFiles, setShareFiles] = useState<DriveFileItem[]>([]);
   const [createShareItems, setCreateShareItems] = useState<DriveFileItem[]>([]);
+  const [zipProgress, setZipProgress] = useState<{ current: number; total: number; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastNavRef = useRef<{ id: string; time: number } | null>(null);
 
-  // Dedup file yang punya id+nodeId sama (biar tidak multi-select)
   const sorted = useMemo(() => {
     return [...(searchResults || driveFiles)].sort((a, b) => {
       if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
@@ -120,13 +125,13 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     });
   }, [searchResults, driveFiles, sort]);
 
-  // Dedup file yang punya id+nodeId sama (biar tidak multi-select)
   const uniqueSorted = useMemo(() => {
     const seen = new Set<string>();
     const out: DriveFileItem[] = [];
     for (const f of sorted) {
-      if (seen.has(f.id)) continue;
-      seen.add(f.id);
+      const key = `${f.id}::${f.nodeId || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push(f);
     }
     return out;
@@ -150,7 +155,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     return () => observer.disconnect();
   }, [hasMoreFiles, loadingMoreFiles, loadMoreFiles, searchResults]);
 
-    // Close context menu when clicking outside
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
@@ -184,7 +188,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [uniqueSorted, selected]);
-  
+
   const select = (id: string, e: React.MouseEvent) => {
     if (e.shiftKey && selected.size) {
       const ids = uniqueSorted.map((f) => f.id);
@@ -205,7 +209,6 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
 
   const open = (file: DriveFileItem) => {
     if (file.isFolder) {
-      // Guard: cegah double navigation dalam 600ms
       const now = Date.now();
       if (lastNavRef.current && lastNavRef.current.id === file.id && now - lastNavRef.current.time < 600) {
         return;
@@ -253,6 +256,70 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
     a.download = file.name;
     a.click();
     toast('Downloading ' + file.name);
+  };
+
+  // ============ BULK ZIP DOWNLOAD ============
+  const handleBulkDownloadZip = async (targets: DriveFileItem[]) => {
+    const fileTargets = targets.filter((f) => !f.isFolder);
+    if (fileTargets.length === 0) {
+      toast('Tidak ada file (bukan folder) yang dipilih');
+      return;
+    }
+
+    let JSZip: any;
+    try {
+      JSZip = (await import('jszip')).default;
+    } catch {
+      toast('JSZip belum terinstall');
+      return;
+    }
+
+    const zip = new JSZip();
+    const usedNames = new Set<string>();
+    setZipProgress({ current: 0, total: fileTargets.length, name: '' });
+
+    for (let i = 0; i < fileTargets.length; i++) {
+      const f = fileTargets[i];
+      setZipProgress({ current: i + 1, total: fileTargets.length, name: f.name });
+      try {
+        const blob = await fetchFileBlob(f.id, f.nodeId);
+        let name = safeZipName(f.name);
+        let counter = 1;
+        while (usedNames.has(name)) {
+          const dot = name.lastIndexOf('.');
+          if (dot > 0) name = `${name.substring(0, dot)}_${counter}${name.substring(dot)}`;
+          else name = `${name}_${counter}`;
+          counter++;
+        }
+        usedNames.add(name);
+        zip.file(name, blob);
+      } catch (err) {
+        console.error(`Gagal fetch ${f.name}:`, err);
+        zip.file(`_FAILED_${safeZipName(f.name)}.txt`, `Failed to download: ${f.name}\nReason: ${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    }
+
+    setZipProgress({ current: fileTargets.length, total: fileTargets.length, name: 'Membuat ZIP...' });
+
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `my-storage_${dateStr}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    setZipProgress(null);
+    toast(`✓ ZIP berisi ${fileTargets.length} file diunduh`);
+    setSelected(new Set());
   };
 
   const handleRename = async (file: DriveFileItem) => {
@@ -387,6 +454,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
 
   const handleTrashSelected = () => {
     const targets = uniqueSorted.filter((x) => selected.has(x.id));
+    if (targets.length > 0) setTrashConfirm(targets);
   };
 
   const showDetails = (file: DriveFileItem) => {
@@ -413,6 +481,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
       case 'rename': handleRename(file); break;
       case 'details': showDetails(file); break;
       case 'download': bulk.forEach((f) => handleDownload(f)); break;
+      case 'download-zip': void handleBulkDownloadZip(bulk); break;
       case 'share': setShareFiles(bulk); break;
       case 'share-link':
         if (isBulk) toast(`Membuat 1 share link untuk ${bulk.length} file...`);
@@ -518,10 +587,16 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         {selected.size > 0 && (
           <div className="group">
             <span style={{ alignSelf: 'center', fontSize: 12, color: '#7b8495', marginRight: 4 }}>{selected.size} selected</span>
-            <button className="xbtn" onClick={() => {
-              const targets = uniqueSorted.filter((x) => selected.has(x.id));
-              targets.forEach((f) => handleDownload(f));
-            }}><Download size={14} /> Download</button>
+            <button
+              className="xbtn primary"
+              onClick={() => {
+                const targets = uniqueSorted.filter((x) => selected.has(x.id));
+                void handleBulkDownloadZip(targets);
+              }}
+              disabled={!!zipProgress}
+            >
+              <Package size={14} /> {zipProgress ? 'Membuat ZIP...' : 'Download ZIP'}
+            </button>
             <button className="xbtn" onClick={() => {
               const targets = uniqueSorted.filter((x) => selected.has(x.id));
               void handleMoveOrCopy(targets, 'move');
@@ -630,7 +705,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
         <div className="file-grid" data-density={density}>
           {uniqueSorted.map((f) => (
             <div
-              key={f.id}
+              key={`${f.id}::${f.nodeId || ''}`}
               className={'file-card' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
@@ -677,7 +752,7 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           </div>
           {uniqueSorted.map((f) => (
             <div
-              key={`${f.id}::${f.nodeId}`}
+              key={`${f.id}::${f.nodeId || ''}`}
               className={'file-row' + (selected.has(f.id) ? ' selected' : '')}
               onClick={(e) => select(f.id, e)}
               onDoubleClick={() => open(f)}
@@ -821,6 +896,9 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
           )}
           <button onClick={() => contextAction('open')}>Open</button>
           <button onClick={() => contextAction('download')}><Download size={14} /> Download</button>
+          {selected.size > 1 && (
+            <button onClick={() => contextAction('download-zip')}><Package size={14} /> Download as ZIP ({selected.size})</button>
+          )}
           <button onClick={() => contextAction('share-link')}><Link2 size={14} /> Create Share Link</button>
           <button onClick={() => contextAction('share')}><Users size={14} /> Google Drive Share</button>
           <button onClick={() => contextAction('rename')}><Pencil size={14} /> Rename</button>
@@ -908,6 +986,25 @@ export function FileExplorer({ onPreview }: FileExplorerProps) {
                 <button className="xbtn" onClick={() => setTrashConfirm([])}>Cancel</button>
                 <button className="xbtn danger" onClick={() => { void handleTrashMultiple(trashConfirm); setTrashConfirm([]); }}>Move to Trash</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ZIP progress overlay */}
+      {zipProgress && (
+        <div className="share-zip-overlay">
+          <div className="share-zip-modal">
+            <div className="share-zip-title">📦 Membuat ZIP...</div>
+            <div className="share-zip-bar">
+              <div
+                className="share-zip-bar-fill"
+                style={{ width: `${(zipProgress.current / zipProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="share-zip-info">
+              {zipProgress.current} / {zipProgress.total}
+              {zipProgress.name && <span className="share-zip-name">· {zipProgress.name}</span>}
             </div>
           </div>
         </div>

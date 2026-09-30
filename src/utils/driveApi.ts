@@ -402,6 +402,21 @@ export function getAuthHeaders(): Record<string, string> {
   return getHeaders();
 }
 
+/**
+ * Fetch file bytes sebagai Blob. Dipakai untuk bulk ZIP download di dashboard.
+ */
+export async function fetchFileBlob(fileId: string, nodeId: string): Promise<Blob> {
+  const token = getSessionToken();
+  const params = new URLSearchParams({ nodeId });
+  if (token) params.set('st', token);
+  const res = await fetch(`${driveOpsUrl()}/download/${fileId}?${params}`, {
+    headers: getHeaders(),
+    credentials: 'omit',
+  });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  return await res.blob();
+}
+
 // ============ Folder Picker ============
 
 export async function fetchFolders(nodeId: string): Promise<{ id: string; name: string; parents?: string[] }[]> {
